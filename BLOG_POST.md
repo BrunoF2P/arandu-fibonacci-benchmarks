@@ -290,15 +290,28 @@ Construir um compilador sério exige fugir de números maquiados. Olhar para tod
 2. **Um Backend Cranelift competitivo**: Mesmo compilando em uma fração do tempo do LLVM/GCC, o `arandu build --release` superou C (Clang) e Rust no Round 2 (`159 ms` vs `162 ms` e `179 ms`) e superou o Clang `-O3` no Round 4 (`127 ms` vs `143 ms`)!
 3. **Avaliação em tempo de compilação (`comptime`) de primeira classe**: Integrada ao motor incremental Salsa, segura contra overflows (`T046`) e capaz de acelerar o binário nativo do Cranelift em **41 vezes** (`686 ms -> 16,7 ms`).
 
-### Onde vamos evoluir no backend nativo direto (`arandu build --release` / Cranelift):
-Quando comparamos o nosso caminho de compilação rápida (`Cranelift --release`) com o caminho `emit-c --opt` nos Rounds 1 e 3, fica cristalino onde o nosso próprio otimizador AMIR (`arandu_mir`) pode avançar sem depender de ninguém:
+### Onde vamos evoluir no nosso otimizador AMIR (`arandu_mir`) e no `comptime`:
+Quando cruzamos os números do AMD EPYC Zen 4 entre `Cranelift --release`, `emit-c --opt` (GCC 13 / Clang 18) e `rustc 1.99`, temos um mapa cirúrgico dos **5 passes de otimização** que podemos implementar diretamente no **AMIR (`arandu_mir`)**, beneficiando todos os nossos backends de uma só vez (Cranelift, C e WebAssembly):
 
-- **1. Function Inlining no AMIR**:
-  Hoje, `arandu_mir` otimiza cada função como uma ilha isolada. No Round 3 (`fibIter`), o binário do Cranelift executou 10 milhões de instruções `call`/`ret`. Adicionar um passo de *inlining* baseado em heurística de custo diretamente no AMIR eliminará o overhead de chamada e destravará otimizações interprocedurais (como *loop unrolling* e vetorização) em todos os backends (Cranelift, C e Wasm).
-- **2. Tail-Recursion Elimination (TRE) no AMIR**:
-  No Round 1, converter auto-recursão em posição de cauda em um salto para o bloco de entrada com parâmetros SSA dentro do próprio AMIR cortará pela metade o tempo de funções recursivas no Cranelift.
-- **3. If-Conversion (`Select` / Branchless) no AMIR**:
-  No Round 5, transformar pequenos diamantes de decisão (`if/else` atribuindo constantes à mesma variável) em operações `Select` sem desvio condicional permitirá ao Cranelift emitir instruções `cmov` diretas, reduzindo *branch mispredictions* e aproximando o tempo de loops de lookup do patamar de `4–7 ms`.
+1. **Function Inlining guiado por custo no AMIR (Impacto direto: Rounds 3 e 4)**
+   - **O que aconteceu**: Hoje, `arandu_mir` otimiza cada função como uma ilha isolada. No Round 3 (`fibIter`), o binário do Cranelift executou 10 milhões de instruções `call`/`ret` com prólogo/epílogo de registradores (`686 ms` vs `178 ms` no C-Backend).
+   - **O que faremos**: Adicionar um passo de *inlining* de funções pequenas diretamente sobre o grafo SSA do AMIR antes da geração de código, eliminando o overhead de chamada e abrindo caminho para otimizações entre chamador e chamado.
+
+2. **Loop-Invariant Code Motion (LICM) + Inlining (Impacto direto: Round 4 — `26.49 ms` vs `99.85 ms`)**
+   - **O que aconteceu**: No Round 4 (*Fast Doubling*), o Arandu+GCC venceu o C+GCC e o C+Clang (`99.85 ms` vs `100.84 ms` e `143.81 ms`), mas o `rustc 1.99` cravou `26.49 ms`. Por quê? Porque após fazer *inlining* de `fib_fast(base + (i & 3))` dentro do loop de 10 milhões de voltas, o LLVM 19 do `rustc 1.99` percebeu que `(i & 3)` só produz 4 entradas possíveis (`base + 0..3`), moveu os cálculos invariantes para fora do loop (*LICM* / *Unswitching*) e reduziu o corpo do loop a uma simples soma!
+   - **O que faremos**: Combinar o *Function Inlining* com *Loop-Invariant Code Motion (LICM)* no AMIR para içar subexpressões puras que não dependem do variável de indução do loop.
+
+3. **Tail-Recursion Elimination (TRE) no AMIR (Impacto direto: Round 1 — `2434 ms` vs `388 ms`)**
+   - **O que aconteceu**: No Round 1 ($O(2^n)$), processadores AMD Zen 4 sofrem forte penalidade no *Return Stack Buffer (RSB)* quando executam duas instruções `call` recursivas reais até 40 níveis de profundidade (883 milhões de chamadas no Cranelift em `2434 ms`), enquanto GCC e Clang transformam o segundo ramo recursivo `fibonacci(n - 2)` em um loop local (`add $-2, %rbx; ja`).
+   - **O que faremos**: Detectar auto-recursão em posição de cauda (e recursão binária acumulativa) no AMIR e reescrevê-la como um salto (`goto bb_entry`) com parâmetros de bloco SSA, cortando pela metade o número de chamadas recursivas no Cranelift.
+
+4. **If-Conversion (`Select` / Branchless `cmov`) no AMIR (Impacto direto: Round 5 — `16.70 ms` vs `4.81 ms`)**
+   - **O que aconteceu**: No Round 5 (`comptime`), mesmo com os 4 números de Fibonacci já materializados como constantes imediatas (`movabs`), o loop de 10 milhões de consultas no Cranelift usou saltos condicionais (`je`/`jmp`) para escolher entre `f90..f93`, levando `16.70 ms`.
+   - **O que faremos**: Colapsar pequenos diamantes de decisão (`if/else` sem efeitos colaterais que apenas selecionam valores SSA) em uma instrução primitiva `Select` no AMIR, permitindo que o Cranelift emita instruções *branchless* (`cmov` no `x86_64` / `csel` no `aarch64`) imunes a *branch misprediction*.
+
+5. **Lookup Tables Estáticas em `.rodata` via `comptime` (Impacto direto: Round 5 — `4.81 ms` vs `0.82 ms`)**
+   - **O que aconteceu**: No Codespaces (Clang 18.1 / GCC 13.3), o C e o Rust consultaram um array constante contíguo `FIB_TABLE[(base + i) & 3]` na seção `.rodata` (`0.82 ms` e `1.24 ms`), permitindo ao analisador *Scalar Evolution (SCEV)* e ao vetorizador AVX2 colapsarem a leitura indexada sem nenhum `if/else`. Já no código Arandu do Round 5, usamos 4 variáveis escalares `f90..f93` selecionadas por `if idx == 0 ... else if idx == 1` (`4.81 ms` no Clang 18).
+   - **O que faremos**: Com a promoção completa de arrays/agregados `comptime` diretamente para tabelas constantes indexáveis em `.rodata` (`const FIB_TABLE: [4]u64 = comptime ...`), o acesso `FIB_TABLE[idx]` passa a ser um único carregamento de memória indexado (`mov (%rdx,%rcx,8), %rax`), destravando a mesma vetorização AVX2 e redução algébrica do LLVM/GCC!
 
 ---
 

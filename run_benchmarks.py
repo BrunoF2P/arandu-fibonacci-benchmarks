@@ -6,7 +6,9 @@ Pronta para execução em ambientes limpos como GitHub Codespaces / Ubuntu / Deb
 import glob
 import os
 import platform
+import re
 import shutil
+import shlex
 import statistics
 import subprocess
 import sys
@@ -112,11 +114,111 @@ def bench_binary(path, runs=7):
     return min(times), statistics.median(times), statistics.mean(times), statistics.stdev(times), last_line, full_out
 
 
+def expected_output(folder):
+    """Independent reference values for the fixed no-extra-arguments workload."""
+    mask = (1 << 64) - 1
+
+    def fib(n):
+        a, b = 0, 1
+        for _ in range(n):
+            a, b = b, a + b
+        return a
+
+    if folder == "01_naive_recursive":
+        return "\n".join(str(fib(n)) for n in range(41))
+    if folder == "02_binet_formula":
+        # For n in 0..70, Binet's rounded result is the exact integer Fibonacci value.
+        return str(sum(fib(n) * (10_000_000 // 71 + (n < 10_000_000 % 71)) for n in range(71)) & mask)
+    if folder in ("03_iterative_dp", "04_fast_doubling"):
+        # argc/args().len()/argsLen() are all 1 when invoked without extra arguments.
+        base = 1 + 89
+        return str(sum(fib(base + r) * (10_000_000 // 4) for r in range(4)) & mask)
+    if folder == "05_comptime_ctfe":
+        return str(sum(fib(90 + r) * (10_000_000 // 4) for r in range(4)) & mask)
+    raise ValueError(f"No reference output for scenario {folder}")
+
+
+def disassemblers():
+    """Return installed native disassemblers in preferred order."""
+    tools = [(name, shutil.which(name)) for name in ("llvm-objdump", "objdump")]
+    if sys.platform == "darwin":
+        path = shutil.which("otool")
+        if path:
+            tools.append(("otool", path))
+    if os.name == "nt":
+        path = shutil.which("dumpbin")
+        if path:
+            tools.append(("dumpbin", path))
+    return [(name, path) for name, path in tools if path]
+
+
+def emit_assembly_dumps(targets):
+    """Disassemble all benchmark executables after timing has finished."""
+    tools = disassemblers()
+    if not tools:
+        print("Assembly não gerado: instale llvm-objdump/objdump (ou o disassembler nativo da plataforma).")
+        return
+
+    out_dir = os.path.join(BUILD_DIR, "assembly")
+    shutil.rmtree(out_dir, ignore_errors=True)
+    os.makedirs(out_dir, exist_ok=True)
+    manifest = [
+        "Disassembly dos executáveis dos benchmarks",
+        f"Plataforma: {platform.platform()} ({platform.machine()})",
+        f"Ferramentas disponíveis: {', '.join(path for _, path in tools)}",
+        "Os arquivos foram gerados depois das medições de tempo.",
+        "",
+    ]
+    for folder, label, binary in targets:
+        safe_label = re.sub(r"[^A-Za-z0-9_.-]+", "_", label).strip("_")
+        filename = f"{folder}__{safe_label}.asm"
+        output_path = os.path.join(out_dir, filename)
+        result = None
+        cmd = None
+        failures = []
+        for tool, tool_path in tools:
+            if tool == "llvm-objdump":
+                candidate_cmd = [tool_path, "-d", "--demangle", binary]
+            elif tool == "objdump":
+                candidate_cmd = [tool_path, "-d", "-C", binary]
+            elif tool == "otool":
+                candidate_cmd = [tool_path, "-tvV", binary]
+            else:  # dumpbin
+                candidate_cmd = [tool_path, "/DISASM", binary]
+            try:
+                result = subprocess.run(
+                    candidate_cmd, capture_output=True, text=True, errors="replace", check=True
+                )
+                cmd = candidate_cmd
+                break
+            except (OSError, subprocess.CalledProcessError) as exc:
+                detail = getattr(exc, "stderr", None) or str(exc)
+                failures.append(f"{tool}: {detail.strip()}")
+        if result is None:
+            print(f"  Assembly falhou para {label} ({binary}): {'; '.join(failures)}")
+            continue
+
+        with open(output_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(f"; Benchmark: {folder}\n; Implementação: {label}\n")
+            f.write(f"; Executável: {os.path.abspath(binary)}\n")
+            f.write(f"; Comando: {shlex.join(cmd)}\n\n")
+            f.write(result.stdout)
+            if result.stderr:
+                f.write("\n; stderr do disassembler:\n")
+                f.write(result.stderr)
+        manifest.append(f"{filename}\t{binary}")
+        print(f"  Assembly: {output_path}")
+
+    with open(os.path.join(out_dir, "MANIFEST.txt"), "w", encoding="utf-8", newline="\n") as f:
+        f.write("\n".join(manifest) + "\n")
+
+
 def main():
     arandu_bin, arandu_std = detect_arandu()
     print_environment(arandu_bin, arandu_std)
     std_flag = f'--stdlib-path "{arandu_std}"' if arandu_std else ""
 
+    assembly_targets = []
     for folder, title, extra_libs in SCENARIOS:
         sdir = os.path.join(ROOT, "scenarios", folder)
         bdir = os.path.join(BUILD_DIR, folder)
@@ -137,6 +239,8 @@ def main():
         run_cmd(f'rustc -C opt-level=3 -C target-cpu=native -C codegen-units=1 -C lto=fat "{rust_src}" -o "{rust_bin}"')
         run_cmd(f'gcc -O3 -march=native -flto "{c_src}" {extra_libs} -o "{c_gcc_bin}"')
         run_cmd(f'clang -O3 -march=native -flto "{c_src}" {extra_libs} -o "{c_clang_bin}"')
+        # Prevent selecting a stale executable left by an earlier compiler build.
+        shutil.rmtree(os.path.join(aru_pkg, "target"), ignore_errors=True)
         run_cmd(f'"{arandu_bin}" build "{aru_pkg}" --release {std_flag} >/dev/null')
         run_cmd(f'"{arandu_bin}" emit-c "{aru_src}" --opt {std_flag} > "{aru_c_src}"')
         run_cmd(f'gcc -O3 -march=native -flto "{aru_c_src}" {extra_libs} -o "{aru_gcc_bin}"')
@@ -146,8 +250,11 @@ def main():
             p for p in glob.glob(os.path.join(aru_pkg, "target", "release", "**", "bin", "*"), recursive=True)
             if os.path.isfile(p) and os.access(p, os.X_OK)
         ]
-        if not aru_clif_bins:
-            raise RuntimeError(f"Binário Cranelift não encontrado em {aru_pkg}/target/release")
+        if len(aru_clif_bins) != 1:
+            raise RuntimeError(
+                f"Esperado exatamente um binário Cranelift recém-compilado em "
+                f"{aru_pkg}/target/release; encontrados: {aru_clif_bins}"
+            )
         aru_clif_bin = aru_clif_bins[0]
 
         print(f"=== {title} ===")
@@ -159,16 +266,21 @@ def main():
             ("Arandu (emit-c --opt + GCC -O3)", aru_gcc_bin),
             ("Arandu (emit-c --opt + Clang -O3)", aru_clang_bin),
         ]
+        assembly_targets.extend((folder, label, binary) for label, binary in candidates)
 
-        reference_output = None
+        expected = expected_output(folder)
         for label, binary in candidates:
             mn, med, mean, sd, last_line, full_out = bench_binary(binary)
-            if reference_output is None:
-                reference_output = full_out
-            elif full_out != reference_output:
-                raise AssertionError(f"Divergência de saída em {label} no cenário {folder}!")
+            if full_out != expected:
+                raise AssertionError(
+                    f"Saída incorreta em {label} no cenário {folder}: "
+                    f"esperado {expected!r}, recebido {full_out!r}"
+                )
             print(f"  {label:38s} | min: {mn:7.2f} ms | med: {med:7.2f} ms | mean: {mean:7.2f} ± {sd:4.2f} ms | out={last_line}")
         print()
+
+    print("=== Gerando assembly para análise (fora da janela de medição) ===")
+    emit_assembly_dumps(assembly_targets)
 
 
 if __name__ == "__main__":

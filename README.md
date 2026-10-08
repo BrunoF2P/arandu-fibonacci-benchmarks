@@ -1,14 +1,14 @@
 # Arandu vs. Rust vs. C — The Ultimate Fibonacci Benchmark Suite
 
-Este repositório contém o código-fonte completo, a toolchain `0.1.9-dev` pré-compilada, scripts de automação e dados oficiais do artigo:
+Este repositório contém os códigos-fonte dos cenários, a toolchain Arandu `0.1.8` incluída, scripts de automação e resultados históricos registrados para o artigo:
 
 > **"Mentiras, Malditas Mentiras e Benchmarks de Fibonacci: Colocando Rust, C e Arandu no Limite"**
 
-Em vez de comparar algoritmos diferentes com flags desiguais (como no famoso meme que coloca `cargo run` em modo Debug recursivo $O(2^n)$ contra `gcc -O3` usando a Fórmula de Binet $O(1)$), esta suíte coloca **Rust (`rustc`)**, **C (`gcc` e `clang`)** e **Arandu (`Cranelift` e `C-Backend`)** lado a lado sob **exatamente os mesmos algoritmos** e com otimização máxima (`-O3 -march=native -flto`).
+Em vez de comparar algoritmos diferentes com flags desiguais (como no famoso meme que coloca `cargo run` em modo Debug recursivo $O(2^n)$ contra `gcc -O3` usando a Fórmula de Binet $O(1)$), esta suíte compara **Rust (`rustc`)**, **C (`gcc` e `clang`)** e **Arandu (`Cranelift` e `C-Backend`)** em cinco cenários. Os algoritmos coincidem dentro dos cenários 1–4; o cenário 5 compara avaliação compile-time e consultas a quatro valores, mas suas formas de armazenamento/acesso devem ser consideradas ao interpretar o desempenho. As flags nativas incluem `-O3 -march=native -flto` para Rust/C e os caminhos Arandu documentados.
 
 ---
 
-## Resultados Oficiais no GitHub Codespaces (`AMD EPYC 9V74` Zen 4 • `AVX2 / BMI2 / FMA`)
+## Resultados históricos registrados no GitHub Codespaces (`AMD EPYC 9V74` Zen 4 • `AVX2 / BMI2 / FMA`)
 
 ```text
 OS / Kernel : Linux 6.8.0-1064-azure (x86_64) — Ubuntu 24.04 LTS
@@ -20,7 +20,7 @@ Clang       : Ubuntu clang version 18.1.3 (1ubuntu1)
 Arandu      : arandu 0.1.8 / 0.1.9-dev (branch codex/comptime-core)
 ```
 
-Tempos de execução (`min` / `mediana` de 7 rodadas após warmup):
+Tempos de execução registrados (`min` / `mediana` de 7 rodadas após warmup). Os fontes e o runner foram corrigidos desde essa medição; estes valores devem ser lidos como resultados históricos daquela execução e não como garantia de que serão reproduzidos pelo estado atual do repositório:
 
 | Cenário | Arandu (`emit-c --opt` + GCC `-O3`) | Arandu (`emit-c --opt` + Clang `-O3`) | Arandu (`build --release` Cranelift) | Rust (`-C opt-level=3 -C lto=fat`) | C (`GCC -O3` / `Clang -O3`) |
 | :--- | ---: | ---: | ---: | ---: | ---: |
@@ -35,8 +35,67 @@ Tempos de execução (`min` / `mediana` de 7 rodadas após warmup):
 ## Como Executar no GitHub Codespaces ou Localmente
 
 ```bash
-python3 run_benchmarks.py
+python3 run_benchmarks.py  # usa a toolchain incluída no repositório
+
+# Para testar o compilador deste workspace Arandu-Lang:
+ARANDU_BIN=../Arandu-Lang/target/debug/arandu_cli \
+ARANDU_STDLIB=../Arandu-Lang/stdlib python3 run_benchmarks.py
 ```
+
+Depois das medições, o runner grava o disassembly dos executáveis em `build/assembly/`, com um arquivo `.asm` por implementação/cenário e `MANIFEST.txt` com plataforma, ferramenta e caminhos. Ele tenta `llvm-objdump`, `objdump`, `otool` ou `dumpbin`, conforme o que estiver instalado. A geração ocorre fora da janela cronometrada; se nenhum disassembler estiver disponível, o runner informa isso e mantém os resultados dos benchmarks.
+
+### Verificação local nesta máquina (2026-10-08)
+
+Esta execução serve para verificar a suíte e ilustrar a variação entre máquinas; não substitui nem reproduz os tempos do Codespaces acima.
+
+```text
+CPU         : Intel Xeon E5-2667 v2 @ 3.30 GHz
+ISA         : AVX, sem AVX2
+OS          : Linux 7.2.7-1-cachyos x86_64
+Rustc       : 1.98.1 (LLVM 22.1.8)
+GCC         : 16.2.1
+Clang       : 23.1.1
+Arandu      : workspace Arandu-Lang/target/debug/arandu_cli (0.1.8, fonte local)
+Stdlib      : ../Arandu-Lang/stdlib
+Medição     : 1 chamada de validação/aquecimento + 7 execuções; min / mediana
+```
+
+| Cenário | Implementação | Min (ms) | Mediana (ms) |
+| :--- | :--- | ---: | ---: |
+| Recursivo | Rust | 992.71 | 998.07 |
+|  | C / GCC | 560.16 | 562.51 |
+|  | C / Clang | 917.66 | 921.34 |
+|  | Arandu / Cranelift | 1858.55 | 1861.79 |
+|  | Arandu C / GCC | 534.97 | 540.86 |
+|  | Arandu C / Clang | 918.55 | 920.05 |
+| Binet | Rust | 411.74 | 415.58 |
+|  | C / GCC | 342.81 | 343.66 |
+|  | C / Clang | 355.23 | 357.16 |
+|  | Arandu / Cranelift | 350.70 | 352.44 |
+|  | Arandu C / GCC | 335.84 | 340.52 |
+|  | Arandu C / Clang | 331.66 | 333.77 |
+| Iterativo | Rust | 228.66 | 230.02 |
+|  | C / GCC | 620.77 | 621.24 |
+|  | C / Clang | 236.13 | 237.67 |
+|  | Arandu / Cranelift | 896.72 | 898.15 |
+|  | Arandu C / GCC | 625.29 | 627.34 |
+|  | Arandu C / Clang | 235.14 | 235.59 |
+| Fast Doubling | Rust | 122.48 | 123.13 |
+|  | C / GCC | 155.60 | 156.44 |
+|  | C / Clang | 123.81 | 125.26 |
+|  | Arandu / Cranelift | 205.47 | 207.56 |
+|  | Arandu C / GCC | 154.02 | 156.33 |
+|  | Arandu C / Clang | 124.82 | 126.43 |
+| Comptime / const | Rust | 1.39 | 1.45 |
+|  | C / GCC | 6.66 | 6.76 |
+|  | C / Clang | 0.49 | 0.52 |
+|  | Arandu / Cranelift | 9.83 | 10.17 |
+|  | Arandu C / GCC | 9.88 | 10.91 |
+|  | Arandu C / Clang | 4.89 | 4.92 |
+
+As saídas dos seis binários em cada cenário coincidiram com referências independentes. No cenário 5, Arandu usa agora a mesma forma geral de acesso por tabela que C e Rust; esse resultado substitui a execução anterior com seleção condicional. O caso Binet percorre `n = 0..70`, intervalo em que os valores de Fibonacci cabem em `u64`; nesta execução, todos os caminhos produziram o checksum `14864523082006142394`. Também comparei cada expoente individualmente: **71 de 71 resultados** foram idênticos entre Cranelift do workspace, `pow` em C e `powf` em Rust. O binário Cranelift chama `pow@GLIBC_2.29` e a conversão `f64 → u64` recebe valores dentro do intervalo representável.
+
+A divergência observada na tentativa reduzida veio de misturar a saída de C/Rust compilados com 100 mil iterações e um binário Cranelift antigo de 10 milhões. O runner agora remove o diretório de build do Arandu antes de compilar, exige um único binário recém-gerado e compara a saída com uma referência independente.
 
 ---
 

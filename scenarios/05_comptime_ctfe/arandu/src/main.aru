@@ -22,20 +22,13 @@ func main(): int {
     let f91: u64 = comptime fibConst(91)
     let f92: u64 = comptime fibConst(92)
     let f93: u64 = comptime fibConst(93)
+    let table: [4]u64 = [f90, f91, f92, f93]
     let base: u64 = (env.argsLen() as u64) - 1
     let mut acc: u64 = 0
     let mut i: u64 = 0
     while i < 10000000 {
         let idx = (base + i) & 3
-        if idx == 0 {
-            set acc = acc + f90
-        } else if idx == 1 {
-            set acc = acc + f91
-        } else if idx == 2 {
-            set acc = acc + f92
-        } else {
-            set acc = acc + f93
-        }
+        set acc = acc + table[idx]
         set i = i + 1
     }
     io.println("${acc}")

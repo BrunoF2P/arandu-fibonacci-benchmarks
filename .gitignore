@@ -6,3 +6,4 @@ build/
 *.o
 *.out
 *.emitted.c
+__pycache__/

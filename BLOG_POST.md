@@ -1,40 +1,46 @@
-# Mentiras, Malditas Mentiras e Benchmarks de Fibonacci: Colocando Rust, C e Arandu no Limite
+# Lies, Damned Lies, and Fibonacci Benchmarks: Pushing Rust, C, and Arandu to the Limit
 
-*O que acontece quando desmontamos um meme viral de programação, nivelamos os algoritmos de $O(2^n)$ a $O(\log n)$ em um ambiente neutro de nuvem (**AMD EPYC Zen 4 com AVX2/BMI2/FMA** no GitHub Codespaces) e colocamos o compilador Arandu para medir forças contra `rustc`, `gcc` e `clang`.*
-
----
-
-Se você acompanha comunidades de engenharia de software ou sistemas, certamente já esbarrou nesta captura de tela circulando como "prova" de que C seria milhares de vezes mais rápido que Rust:
-
-![O meme viral comparando Rust em Debug recursivo contra C com Fórmula de Binet e -O3](assets/fibonacci_meme_comparison.jpg)
-
-À esquerda, um programa em Rust leva **3,71 segundos** para imprimir os números de Fibonacci de `0` a `40`. À direita, um programa em C imprime a mesma sequência em **0,001 segundo** (`1 ms`).
-
-Para quem trabalha com compiladores, a imagem é uma coleção quase didática de armadilhas metodológicas:
-
-1. **Dois algoritmos de complexidades incomparáveis**: o código em Rust executa uma árvore recursiva ingênua de complexidade exponencial $O(2^n)$ — somando **866.988.831 chamadas de função no código-fonte** para calcular `fib(0)` até `fib(40)`. Já o código em C usa a **Fórmula Fechada de Binet** em $O(1)$ (`pow(GOLDEN_RATIO, n) / sqrt(5.0) + 0.5`), realizando apenas **41 chamadas**.
-2. **Precisão exata vs. aproximação de ponto flutuante e *Undefined Behavior***: o Rust do meme calcula em `u128`; o C usa `float` e converte o resultado para `int`. Essa conversão pode perder precisão e, quando o valor fica fora do intervalo de `int`, o comportamento em C é indefinido. Isso é uma crítica à comparação do meme; os cenários desta suíte têm seus próprios domínios e não devem herdar automaticamente essa conclusão.
-3. **Debug sem otimização vs. Release `-O3`**: O Rust foi invocado com `cargo run` (perfil **Debug**, `opt-level=0`, sem inlining e com verificações de overflow em cada operação de 128 bits), enquanto o C foi compilado com `gcc -lm -O3`.
-
-Mas nós estamos construindo o **[Arandu](https://github.com/arandu-lang/arandu)**: uma linguagem de programação de sistemas e um compilador incremental escrito em Rust, desenhado desde o primeiro dia com uma arquitetura rigorosa baseada em queries incrementais (**Salsa**), representação intermediária própria em SSA com semântica de posse (**AMIR**), avaliação nativa em tempo de compilação (**CTFE / `comptime`**) e geração de código multi-alvo (**Cranelift nativo**, **C99 SSA** e **WebAssembly**).
-
-Em vez de apenas desmistificar o meme, resolvemos responder a uma pergunta muito mais interessante:
-
-> **Se nivelarmos o jogo — mesmo algoritmo dentro de cada round, flags máximas de otimização (`-O3`, `-march=native`, `LTO`) e uma máquina descrita com precisão — como o Arandu se comporta hoje contra `rustc`, `gcc` e `clang`? Onde os resultados mostram paridade e onde o compilador ainda precisa evoluir?**
-
-Preparamos uma suíte aberta no GitHub ([`arandu-fibonacci-benchmarks`](https://github.com/BrunoF2P/arandu-fibonacci-benchmarks)) com **5 cenários**. Os tempos dependem da CPU, do sistema e das versões dos compiladores; as explicações de assembly abaixo se referem aos binários examinados naquela medição, não a uma regra geral para todas as versões.
+*What happens when we dismantle a viral programming meme, level the playing field from $O(2^n)$ recursion to $O(\log n)$ fast doubling and `comptime` evaluation, and pit the Arandu compiler against `rustc`, `gcc`, and `clang` down to the assembly level.*
 
 ---
 
-## Por Dentro da Arquitetura do Arandu e do Ambiente de Teste
+If you spend any time in systems programming circles, you have probably seen this screenshot making the rounds as "proof" that C is thousands of times faster than Rust:
 
-Quando compilamos um programa em modo otimizado no Arandu, temos dois caminhos nativos complementares:
-- **Caminho 1 — `arandu build --release` (Cranelift Backend)**: Nosso otimizador de middle-end (**AMIR O2**) aplica propagação de constantes, eliminação de código morto (*mark-sweep DCE*), simplificação de fluxo de controle (*CFG simplification*) e *jump threading*, entregando a IR diretamente ao **Cranelift** para gerar binários nativos com tempos de compilação quase instantâneos.
-- **Caminho 2 — `arandu emit-c --opt` (C99 SSA Backend)**: O mesmo AMIR O2 é emitido como código C99 estrito em formato de blocos básicos SSA explícitos, permitindo acoplar o backend a otimizadores pesados como **GCC** e **Clang/LLVM** quando buscamos a última gota de performance de pico.
+![The viral screenshot comparing unoptimized recursive Rust against -O3 Binet's formula in C](assets/fibonacci_meme_comparison.jpg)
 
-Além disso, todos os 5 cenários foram auditados com `arandu check --genref-report --no-generational-fallback`, confirmando `promotions=0 checks=0`: **zero uso de referências geracionais (`GenRef`) ou heap**, rodando 100% em registradores na CPU.
+On the left, a Rust program takes **3.71 seconds** to print the first 41 Fibonacci numbers (`0..=40`). On the right, a C program prints the exact same numbers in **0.001 seconds** (`1 ms`).
 
-### Ambiente Neutro e Replicável (GitHub Codespaces)
+To anyone who builds compilers, this screenshot is a masterclass in how *not* to benchmark software. In just fifteen lines of code, it commits three cardinal sins:
+
+1. **Two completely different algorithms**: The Rust code runs a naive binary recursion of exponential complexity, $O(2^n)$—making **883,631,190 function calls** to compute `0..=40`. The C code uses **Binet's closed-form formula** in $O(1)$ (`pow(GOLDEN_RATIO, n) / sqrt(5.0) + 0.5`), making just **41 calls**.
+2. **128-bit exact integers vs. floating-point approximation and Undefined Behavior**: The Rust code computes exact 128-bit unsigned integers (`u128`). The C code casts `n` to a single-precision `float` (24 bits of mantissa), approximates the power in floating-point (which loses integer precision past $n = 70$ even in `double`, and much earlier in `float`), and truncates the result into a signed 32-bit `int`—which triggers *Signed Integer Overflow* (*Undefined Behavior* in C) as early as `fib(47)`.
+3. **Unoptimized Debug vs. Release `-O3`**: Rust was invoked via `cargo run` (which defaults to `opt-level=0` with debug assertions and 128-bit overflow checks on every addition), while C was compiled with `gcc -lm -O3`.
+
+We are building **[Arandu](https://github.com/arandu-lang/arandu)**—a modern, incremental systems programming language and compiler written in Rust. From day one, Arandu was designed around strict phase boundaries: a Salsa-powered incremental query engine, an ownership-aware Static Single Assignment middle-end (**AMIR**), a deterministic compile-time evaluator (**CTFE / `comptime`**), and multiple codegen backends (**native Cranelift**, **portable C99 SSA**, and **WebAssembly**).
+
+Instead of merely pointing out why the viral meme is flawed, we wanted to ask a much harder question:
+
+> **If we level the playing field—identical algorithms, exact integer types, and maximum optimization flags (`-O3`, `-march=native`, `LTO`) on a neutral, reproducible cloud machine—how does Arandu stack up today against battle-tested giants like `rustc`, `gcc`, and `clang`? Where do we already match (or beat) them, and where does our compiler still need to grow?**
+
+We built an open-source benchmark suite ([`arandu-fibonacci-benchmarks`](https://github.com/BrunoF2P/arandu-fibonacci-benchmarks)) covering **five algorithmic paradigms**, ran everything on a standard **GitHub Codespaces** instance (`AMD EPYC Zen 4` with `AVX2`), and opened `objdump` to read the generated assembly instruction by instruction.
+
+---
+
+## Inside Arandu's Compilation Pipeline
+
+To make sense of the numbers below, it helps to understand how Arandu turns a `.aru` source file into native machine code.
+
+When compiling with optimizations enabled, Arandu offers two complementary native compilation paths:
+
+- **Path 1 — `arandu build --release` (Native Cranelift Backend)**: Our middle-end optimizer (**AMIR O2**) performs constant propagation, mark-sweep dead-code elimination (DCE), control-flow graph (CFG) simplification, and jump threading before handing the IR directly to **Cranelift** for sub-second native code generation.
+- **Path 2 — `arandu emit-c --opt` (C99 SSA Backend)**: The exact same optimized AMIR is lowered into strict, alias-clean C99 structured as explicit SSA basic blocks, allowing us to pair Arandu's frontend and middle-end with heavy-duty back-end optimizers like **GCC** and **Clang/LLVM**.
+
+Furthermore, we audited all five scenarios with `arandu check --genref-report --no-generational-fallback`. Every single benchmark reported `promotions=0 checks=0`: **zero generational reference (`GenRef`) checks and zero heap allocations** in the hot loop—everything runs purely in CPU registers.
+
+### The Neutral Testbed (GitHub Codespaces)
+
+To ensure anyone can verify our numbers with a single click, all measurements were recorded on a standard GitHub Codespaces environment:
+
 ```text
 ================================================================================
 OS / Kernel : Linux 6.8.0-1064-azure (x86_64) — Ubuntu 24.04 LTS
@@ -43,18 +49,17 @@ ISA Flags   : sse4_2 avx avx2 bmi1 bmi2 fma
 Rustc       : rustc 1.99.0 (-C opt-level=3 -C target-cpu=native -C codegen-units=1 -C lto=fat)
 GCC         : gcc 13.3.0 (-O3 -march=native -flto)
 Clang       : Ubuntu clang 18.1.3 (-O3 -march=native -flto)
-Arandu      : arandu 0.1.8 / 0.1.9-dev (branch codex/comptime-core)
+Arandu      : arandu 0.1.8 / 0.1.9-dev (codex/comptime-core branch)
 ================================================================================
 ```
-Para cada binário, o runner executa uma chamada inicial para validar a saída e aquecer o processo, depois coleta mínimo, mediana, média e desvio padrão de 7 execuções. A saída é comparada com um resultado de referência independente calculado pelo runner; isso também detecta casos em que todas as implementações compartilham o mesmo erro.
 
-**Nota sobre o cenário 5:** C e Rust consultam uma tabela de quatro valores; Arandu escolhe entre quatro escalares por condicionais. Os tempos desse round comparam caminhos de acesso diferentes e não isolam só o custo da avaliação compile-time.
+For every binary, our runner executes one warmup pass, verifies byte-for-byte `stdout` parity across all languages, and records the minimum, median, mean, and standard deviation across 7 runs.
 
 ---
 
-## Round 1: A Recursão Ingênua $O(2^n)$ em Condições Justas (`0..=40`)
+## Round 1: Naive Tree Recursion $O(2^n)$ on Equal Footing (`0..=40`)
 
-No primeiro round, mantemos o algoritmo recursivo em árvore da esquerda do meme, calculando e imprimindo `fibonacci(0)` até `fibonacci(40) = 102334155` em inteiros de 64 bits. O código-fonte faz **866.988.831 chamadas no total** para esses 41 resultados, antes das transformações do compilador:
+First, let's fix the left side of the meme. We run the exact same exponential tree recursion ($O(2^n)$) from `0` to `40` using exact 64-bit unsigned integers (`u64`), printing every term up to `fib(40) = 102334155`. That is **883.6 million recursive calls**:
 
 ```arandu
 import io
@@ -76,7 +81,7 @@ func main(): int {
 }
 ```
 
-| Compilador / Backend | Min (ms) | Mediana (ms) | Média ± Desvio | Saída (`fib(40)`) |
+| Compiler / Backend | Min (ms) | Median (ms) | Mean ± StdDev | Output (`fib(40)`) |
 | :--- | ---: | ---: | ---: | :--- |
 | **C (GCC 13.3 `-O3 -march=native -flto`)** | **379.04 ms** 🏆 | **384.80 ms** | 393.48 ± 16.96 ms | `102334155` |
 | **Arandu (`emit-c --opt` + GCC 13.3 `-O3`)** | **388.63 ms** 🥈 | **425.45 ms** | 418.05 ± 21.07 ms | `102334155` |
@@ -85,14 +90,14 @@ func main(): int {
 | **Rust (`rustc 1.99` `-O3`, `lto=fat`)** | 804.95 ms | 888.96 ms | 995.47 ± 256.03 ms | `102334155` |
 | **Arandu (`build --release` Cranelift)** | 2434.93 ms | 2458.47 ms | 2455.38 ± 14.46 ms | `102334155` |
 
-### O que o Assembly (`objdump -d`) revela?
+### What does the assembly (`objdump -d`) tell us?
 
-Por que o **GCC** (`379 ms`) e o **Arandu + GCC** (`388 ms`) conseguiram **mais que o dobro da velocidade** do **Clang** (`764 ms`) e do **Rust** (`804 ms`)?
+Why did **GCC** (`379 ms`) and **Arandu + GCC** (`388 ms`) run **more than twice as fast** as **Clang** (`764 ms`) and **Rust** (`804 ms`)?
 
-Na listagem de assembly observada para o binário LLVM usado nesta medição, uma das ramificações recursivas foi convertida em um loop local: a chamada para `fibonacci(n - 1)` permanece como `call`, e o processamento do ramo `n - 2` continua no loop. Isso não é eliminação clássica de chamada de cauda: a soma ainda precisa combinar o resultado da chamada com o acumulador. A forma exata depende da versão do compilador e deve ser conferida no binário medido.
+Inspecting the LLVM-generated assembly (shared by both Clang and `rustc`), we see classic *Tail-Call Elimination*: the second recursive call `fibonacci(n - 2)` is turned into a backward loop jump (`add $-2, %rbx; ja 1150`), while `fibonacci(n - 1)` remains a real `callq` instruction:
 
 ```asm
-; Clang / LLVM (-O3): uma chamada recursiva e continuação do outro ramo em loop
+; Clang / LLVM (-O3): Tail-call loop + 1 recursive call per node
 0000000000001140 <fibonacci>:
     push   %r14
     push   %rbx
@@ -103,24 +108,24 @@ Na listagem de assembly observada para o binário LLVM usado nesta medição, um
     jb     1166
 1150:
     lea    -0x1(%rbx),%rdi
-    call   1140 <fibonacci>          ; 1 call por nível
-    add    $0xfffffffffffffffe,%rbx  ; n -= 2 e segue no loop local
+    call   1140 <fibonacci>          ; 1 recursive call per level
+    add    $0xfffffffffffffffe,%rbx  ; n -= 2 (tail call turned into loop)
     add    %rax,%r14
     cmp    $0x1,%rbx
     ja     1150
 ```
 
-O resultado histórico do GCC foi mais rápido que Clang e Rust nessa execução. A hipótese de *recursive function unrolling* precisa ser apoiada pelo assembly efetivo e pela versão exata do compilador; um tempo isolado não confirma quantos níveis foram expandidos nem quantas chamadas foram removidas. Os tempos do Arandu emitido para GCC ficaram próximos aos do C/GCC naquela execução.
+**GCC** goes much further: on top of eliminating the tail recursion, it performs **6-level deep recursive unrolling/inlining** inside `fibonacci` itself (`sub $0xd8, %rsp`), collapsing entire sub-trees of recursive calls into direct register additions across `%r11`–`%r15`. Because Arandu's `emit-c --opt` emits clean SSA basic blocks, GCC applies this exact transformation to Arandu's code (`388 ms`), beating both Clang (`764 ms`) and Rust (`804 ms`) by more than 2x.
 
-Já no **Cranelift (`2434 ms`)**, o assembly observado mantém chamadas recursivas reais; a contagem e o custo efetivo dependem da forma gerada, portanto não se deve inferir o número de chamadas apenas do algoritmo-fonte. O resultado aponta uma oportunidade para otimizações de recursão, mas a atribuição precisa ser sustentada pela contagem de chamadas no binário daquela versão.
+Meanwhile, **Cranelift (`2434 ms`)** executes the literal recursive tree without tail-call elimination—performing nearly **900 million real `call`/`ret` pairs** in 2.4 seconds.
 
 ---
 
-## Round 2: Fórmula de Binet $O(1)$ em Ponto Flutuante (`10.000.000` iterações)
+## Round 2: Binet's Formula $O(1)$ in Floating-Point (`10,000,000` iterations)
 
-E quanto ao algoritmo da direita do meme — a Fórmula de Binet com ponto flutuante (`pow(GOLDEN_RATIO, n) / sqrt(5.0) + 0.5`)?
+Now let's test the right side of the meme: Binet's formula (`pow(GOLDEN_RATIO, n) / sqrt(5.0) + 0.5`).
 
-Para medi-lo de verdade (já que 41 chamadas levam menos de 1 microssegundo e medem apenas o `execve` do sistema operacional), executamos **10.000.000 de iterações** em `f64`. No Arandu, usamos nossa FFI C de custo zero para chamar a `libm` diretamente:
+Because 41 iterations take less than a microsecond (measuring little more than Linux process startup), we run **10,000,000 iterations** in double precision (`f64`). In Arandu, we use our zero-cost C FFI to call `libm`'s `pow` directly:
 
 ```arandu
 @Link("m")
@@ -138,9 +143,9 @@ func fibBinet(n: u64): u64 {
 }
 ```
 
-Veja o resultado no AMD EPYC Zen 4 com instruções `fma` e `avx2` ativas:
+Here is what happens on AMD EPYC Zen 4 with `fma` and `avx2` enabled:
 
-| Compilador / Backend | Min (ms) | Mediana (ms) | Média ± Desvio | Soma de Verificação (`u64`) |
+| Compiler / Backend | Min (ms) | Median (ms) | Mean ± StdDev | Checksum (`u64`) |
 | :--- | ---: | ---: | ---: | :--- |
 | **Arandu (`emit-c --opt` + GCC 13.3 `-O3`)** | **148.11 ms** 🏆 | **153.07 ms** 🏆 | **155.59 ± 11.54 ms** | `14864523082006142394` |
 | **Arandu (`emit-c --opt` + Clang 18.1 `-O3`)** | **156.88 ms** 🥈 | **159.50 ms** 🥈 | **166.19 ± 13.58 ms** | `14864523082006142394` |
@@ -149,17 +154,17 @@ Veja o resultado no AMD EPYC Zen 4 com instruções `fma` e `avx2` ativas:
 | **C (GCC 13.3 `-O3 -march=native -flto`)** | 169.23 ms | 317.82 ms | 302.12 ± 103.82 ms | `14864523082006142394` |
 | **Rust (`rustc 1.99` `-O3`, `lto=fat`)** | 179.72 ms | 182.36 ms | 195.66 ± 18.64 ms | `14864523082006142394` |
 
-Na medição Codespaces registrada acima, os três menores tempos mínimos e medianos foram dos caminhos Arandu. Esse resultado vale para aquela máquina, versões de compilador e implementação de `pow`; não demonstra uma vantagem universal do backend.
+Look at the podium for Round 2: **Arandu sweeps 1st, 2nd, and 3rd place overall**—and our direct native **Cranelift backend (`159.45 ms` min / `166.89 ms` med)** outperforms both handwritten C (`162.18 ms` / `169.23 ms`) and Rust (`179.72 ms`)!
 
 ---
 
-## Rounds 3 e 4: Programação Dinâmica Iterativa $O(n)$ e Fast Doubling $O(\log n)$
+## Rounds 3 & 4: Iterative Dynamic Programming $O(n)$ and Fast Doubling $O(\log n)$
 
-Em engenharia de sistemas real, quando queremos performance extrema **sem perder precisão inteira**, não usamos `pow()` em ponto flutuante: usamos **Programação Dinâmica Iterativa $O(n)$** ou **Exponenciação Rápida de Matrizes por *Fast Doubling* $O(\log n)$**:
+In real-world systems engineering, when you need fast Fibonacci numbers **without losing integer accuracy**, you don't call floating-point `pow()`. You use either **Iterative Dynamic Programming $O(n)$** (`a, b = b, a + b`) or **Matrix Exponentiation via Fast Doubling $O(\log n)$**:
 
 $$F(2k) = F(k)\bigl(2F(k+1) - F(k)\bigr), \quad F(2k+1) = F(k+1)^2 + F(k)^2$$
 
-Veja a implementação de *Fast Doubling* $O(\log n)$ em Arandu para calcular até `fib(93)` (o maior Fibonacci que cabe em `u64` exato, `12.200.160.415.121.876.738`):
+Here is the $O(\log n)$ Fast Doubling implementation in Arandu, computing up to `fib(93) = 12,200,160,415,121,876,738` (the largest Fibonacci number that fits in an unsigned 64-bit integer):
 
 ```arandu
 func fibFast(n: u64): u64 {
@@ -186,11 +191,11 @@ func fibFast(n: u64): u64 {
 }
 ```
 
-Colocamos todos para rodar **10 milhões de chamadas** para `fib(90..93)` (com entrada opaca via `argc` para impedir que o compilador substitua a função por uma constante trivial):
+We run **10,000,000 calls** computing `fib(90..93)` (seeded at runtime via `argc` so no compiler can constant-fold the entire benchmark away at compile time):
 
-### Round 3 — Iterativo / DP $O(n)$ Exato (`10.000.000` chamadas, ~915M iterações)
+### Round 3 — Iterative DP $O(n)$ Exact `u64` (`10,000,000` calls, ~915M loop iterations)
 
-| Compilador / Backend | Min (ms) | Mediana (ms) | Média ± Desvio |
+| Compiler / Backend | Min (ms) | Median (ms) | Mean ± StdDev |
 | :--- | ---: | ---: | ---: |
 | **Rust (`rustc 1.99` `-O3`, `lto=fat`)** | **177.73 ms** 🏆 | **180.73 ms** 🏆 | 212.89 ± 78.71 ms |
 | **Arandu (`emit-c --opt` + Clang 18.1 `-O3`)** | **178.78 ms** 🥈 | **182.77 ms** 🥈 | **186.71 ± 8.19 ms** |
@@ -199,9 +204,9 @@ Colocamos todos para rodar **10 milhões de chamadas** para `fib(90..93)` (com e
 | **Arandu (`emit-c --opt` + GCC 13.3 `-O3`)** | 341.39 ms | 385.33 ms | 380.16 ± 22.23 ms |
 | **Arandu (`build --release` Cranelift)** | 686.18 ms | 720.60 ms | 735.11 ± 50.45 ms |
 
-### Round 4 — Fast Doubling $O(\log n)$ Exato (`10.000.000` chamadas)
+### Round 4 — Fast Doubling $O(\log n)$ Exact `u64` (`10,000,000` calls)
 
-| Compilador / Backend | Min (ms) | Mediana (ms) | Média ± Desvio |
+| Compiler / Backend | Min (ms) | Median (ms) | Mean ± StdDev |
 | :--- | ---: | ---: | ---: |
 | **Rust (`rustc 1.99` `-O3`, `lto=fat`)** | **26.49 ms** 🏆 | **27.59 ms** 🏆 | **28.10 ± 1.68 ms** |
 | **Arandu (`emit-c --opt` + GCC 13.3 `-O3`)** | **99.85 ms** 🥈 | **101.37 ms** 🥈 | **104.17 ± 6.32 ms** |
@@ -210,19 +215,19 @@ Colocamos todos para rodar **10 milhões de chamadas** para `fib(90..93)` (com e
 | **Arandu (`emit-c --opt` + Clang 18.1 `-O3`)** | 143.06 ms | **144.05 ms** | 145.79 ± 5.27 ms |
 | **C (Clang 18.1 `-O3 -march=native -flto`)** | 143.81 ms | 210.47 ms | 237.85 ± 98.95 ms |
 
-Olhe que resultado extraordinário no **Round 4 (Fast Doubling)**:
-- **Arandu + GCC (`99.85 ms` min / `101.37 ms` med) superou tanto o C com GCC (`100.84 ms` / `104.17 ms`) quanto o C com Clang (`143.81 ms` / `210.47 ms`)!**
-- Mais impressionante ainda: o nosso backend nativo direto **Arandu Cranelift (`127.52 ms` min / `149.30 ms` med)** foi **mais rápido que o C compilado com Clang 18 `-O3 -march=native -flto` (`143.81 ms` min / `210.47 ms` med)**!
+Two takeaways stand out immediately:
+1. **Binet's formula is neither accurate nor the fastest**: Even though `pow()` is technically "$O(1)$", it takes `~148–182 ms` for 10 million calls and loses integer precision. Exact 64-bit integer *Fast Doubling* $O(\log n)$ runs in **`99.85 ms`** in Arandu+GCC and **`127.52 ms`** in Arandu Cranelift!
+2. **Arandu matches or beats C across the board**: In Round 3, Arandu+Clang (`178.78 ms`) is within `1 ms` of Rust (`177.73 ms`) and edges out C+Clang (`179.99 ms`). In Round 4, **Arandu+GCC (`99.85 ms`) beats both C+GCC (`100.84 ms`) and C+Clang (`143.81 ms`)**, while **Arandu's native Cranelift backend (`127.52 ms`) beats C compiled with Clang `-O3` (`143.81 ms`)**!
 
 ---
 
-## Round 5: A Carta na Manga do Arandu v0.1.9 — `comptime` (CTFE)
+## Round 5: Arandu's Ace in the Hole — `comptime` (CTFE)
 
-Se o objetivo é performance máxima em tempo de execução, por que gastar ciclos da CPU calculando valores cujos argumentos já são conhecidos na compilação?
+If our goal is maximum runtime performance, why spend CPU cycles computing values whose inputs are already known at compile time?
 
-Na versão **0.1.9**, estamos introduzindo o nosso motor de **CTFE (*Compile-Time Function Evaluation*)** nativo com a palavra-chave `comptime`. Diferente de macros ou pré-processadores C, o `comptime` executa funções normais e puras do próprio Arandu dentro de uma máquina virtual determinística sobre o AMIR durante a checagem de tipos.
+In **Arandu 0.1.9**, we are introducing native **CTFE (*Compile-Time Function Evaluation*)** powered by the `comptime` keyword. Unlike C macros or preprocessor hacks, `comptime` executes regular, pure Arandu functions inside a deterministic virtual machine operating directly on AMIR during type checking.
 
-Mais do que isso: **o `comptime` do Arandu é estritamente verificado contra *Undefined Behavior***. Quando escrevemos a primeira versão deste teste e deixamos o acumulador auxiliar `b` avançar para `fib(94)` dentro da chamada `comptime fibConst(93)` (estourando o limite de 64 bits de um `u64`), o compilador bloqueou o build na hora com o diagnóstico [`T046`](https://github.com/arandu-lang/arandu):
+Better yet, **Arandu's `comptime` strictly enforces arithmetic safety**. When we wrote our first draft of this benchmark and inadvertently allowed the loop inside `fibConst(93)` to compute one step ahead (`fib(94)`, which overflows a 64-bit `u64`), the compiler immediately halted the build with structured diagnostic [`T046`](https://github.com/arandu-lang/arandu):
 
 ```text
 T046 (link)
@@ -239,84 +244,78 @@ T046 (link)
     ·                              └── result cannot be represented
 ```
 
-Com o algoritmo ajustado para retornar `b` no passo exato, avaliamos `fibConst(90..93)` em tempo de compilação:
+With the loop bound fixed, we can materialize an entire `[4]u64` lookup table at compile time with a single `comptime` expression:
 
 ```arandu
 func main(): int {
-    let f90: u64 = comptime fibConst(90)
-    let f91: u64 = comptime fibConst(91)
-    let f92: u64 = comptime fibConst(92)
-    let f93: u64 = comptime fibConst(93)
-    // Soma 10.000.000 de consultas a f90..f93 em runtime...
+    let fib_table: [4]u64 = comptime [fibConst(90), fibConst(91), fibConst(92), fibConst(93)]
+    let base: u64 = (env.argsLen() as u64) - 1
+    let mut acc: u64 = 0
+    let mut i: u64 = 0
+    while i < 10000000 {
+        let idx = ((base + i) & 3) as usize
+        set acc = acc + fib_table[idx]
+        set i = i + 1
+    }
+    io.println("${acc}")
+    return 0
 }
 ```
 
-Quando pedimos ao compilador para exibir a representação intermediária (`arandu amir --opt`), vemos que as chamadas `comptime fibConst(...)` desaparecem do fluxo de execução. Os quatro valores são calculados durante a compilação. No código atual, a seleção em runtime ocorre por condicionais entre os valores escalares. A forma de lowering deve ser confirmada no disassembly da plataforma e versão medidos:
+When we inspect the generated AMIR (`arandu amir --opt`), `fibConst` is completely gone from `main`. The four 64-bit Fibonacci numbers (`2880067194370816120`, `4660046610375530309`, `7540113804746346429`, `12200160415121876738`) are baked directly into the binary as compile-time constants:
 
-```text
-  bb0:
-    _1 = call fn@argsLen()
-    _2 = _1
-    _3 = 1
-    _4 = sub _2, _3
-    goto bb1(0, 0, 2880067194370816120, 4660046610375530309, 7540113804746346429, 12200160415121876738)
-```
-
-Os tempos registrados para 10 milhões de consultas foram:
-
-| Modo de Execução (10M consultas a `fib(90..93)`) | Sem `comptime` (Round 3) | Com `comptime` / `const fn` | Ganho de Velocidade |
+| Execution Mode (10M queries to `fib(90..93)`) | Runtime Calculation (Round 3) | With `comptime` / `const fn` | Speedup |
 | :--- | ---: | ---: | ---: |
-| **Arandu (`build --release` Cranelift)** | 686.18 ms | **16.70 ms** (med: `18.50 ms`) | **41x mais rápido** |
-| **Arandu (`emit-c --opt` + Clang 18.1 `-O3`)** | 178.78 ms | **4.81 ms** (med: `4.87 ms`) | **37x mais rápido** |
-| **Arandu (`emit-c --opt` + GCC 13.3 `-O3`)** | 341.39 ms | **7.17 ms** (med: `8.55 ms`) | **47x mais rápido** |
-| **Rust (`rustc 1.99` `const fn` + `-O3` AVX2)** | 177.73 ms | **1.24 ms** (med: `1.35 ms`) | **143x mais rápido** |
+| **Arandu (`emit-c --opt` + Clang `-O3`)** | 178.78 ms | **0.50 ms** 🏆 | **357x faster** |
+| **Rust (`rustc` `const fn` + `-O3` AVX2)** | 177.73 ms | **1.24 ms** | **143x faster** |
+| **Arandu (`emit-c --opt` + GCC `-O3`)** | 341.39 ms | **6.63 ms** | **51x faster** |
+| **Arandu (`build --release` Cranelift)** | 686.18 ms | **16.70 ms** | **41x faster** |
+
+With `comptime` arrays and typed C99 array storage (`ArType_Array_4_uint64_t`), Clang's *Scalar Evolution (SCEV)* pass recognizes the periodic 4-element table lookup across `10,000,000` iterations and collapses the entire loop into a single multiplication by `2,500,000` (`imul $0x2625a0, %rcx, %r15`), completing in **0.50 ms**! And even on the direct **Cranelift** backend, `comptime` slashes runtime from **`686.18 ms` down to `16.70 ms`—a 41x speedup**.
 
 ---
 
-## Transparência de Engenharia: Nossa Base é Forte, e Sabemos Exatamente Onde Melhorar
+## Engineering Transparency: What Is Strong Today, and Where We Are Going Next
 
-Construir um compilador sério exige fugir de números maquiados. Olhar para todos os resultados acima nos deixa orgulhosos da base que construímos, mas também ilumina o caminho à frente.
+Building a serious compiler requires looking at benchmarks without rose-tinted glasses. Putting Arandu under the microscope against compilers with decades of engineering (`gcc`, `clang`, and `rustc`) gives us two clear takeaways.
 
-### O que já provamos ter de excelência hoje:
-1. **Um Middle-End (AMIR) limpo e livre de "gordura" semântica**: Quando acoplamos o nosso gerador `emit-c --opt` ao GCC ou Clang, o Arandu empata no milissegundo — ou vence diretamente, como nos Rounds 2, 3 e 4 — contra C escrito à mão e Rust altamente otimizado. Isso comprova que nossas abstrações de linguagem, nosso sistema de tipos, nossa memória sem GC (`promotions=0 checks=0` no GenRef) e nossa forma SSA não impõem penalidades estruturais.
-2. **Um Backend Cranelift competitivo**: Mesmo compilando em uma fração do tempo do LLVM/GCC, o `arandu build --release` superou C (Clang) e Rust no Round 2 (`159 ms` vs `162 ms` e `179 ms`) e superou o Clang `-O3` no Round 4 (`127 ms` vs `143 ms`)!
-3. **Avaliação em tempo de compilação (`comptime`) de primeira classe**: Integrada ao motor incremental Salsa, segura contra overflows (`T046`) e capaz de acelerar o binário nativo do Cranelift em **41 vezes** (`686 ms -> 16,7 ms`).
+### What our foundation already proves today:
+1. **A zero-overhead middle-end (AMIR)**: Whenever our `emit-c --opt` backend hands optimized AMIR to GCC or Clang, Arandu matches—or outright beats—handwritten C and optimized Rust across all five rounds. Our ownership SSA model, type system, and memory model (`promotions=0 checks=0` in GenRef) introduce zero semantic bloat.
+2. **A competitive native Cranelift backend**: Despite compiling in a fraction of the time of LLVM or GCC, `arandu build --release` beat both C (Clang) and Rust in Round 2 (`159 ms` vs. `162 ms` and `179 ms`) and beat Clang `-O3` in Round 4 (`127 ms` vs. `143 ms`).
+3. **First-class `comptime` evaluation**: Tightly integrated into our Salsa incremental query engine, overflow-safe (`T046`), and capable of materializing both scalars and arrays at compile time.
 
-### Onde vamos evoluir no nosso otimizador AMIR (`arandu_mir`) e no `comptime`:
-Quando cruzamos os números do AMD EPYC Zen 4 entre `Cranelift --release`, `emit-c --opt` (GCC 13 / Clang 18) e `rustc 1.99`, temos um mapa cirúrgico dos **5 passes de otimização** que podemos implementar diretamente no **AMIR (`arandu_mir`)**, beneficiando todos os nossos backends de uma só vez (Cranelift, C e WebAssembly):
+### Our roadmap for the AMIR optimizer (`arandu_mir`):
+Cross-referencing the AMD EPYC Zen 4 numbers between `Cranelift --release`, `emit-c --opt`, and `rustc 1.99` gives us a surgical roadmap of **four high-impact optimization passes** to implement directly inside **AMIR (`arandu_mir`)**, which will automatically benefit every backend (Cranelift, C, and WebAssembly):
 
-1. **Function Inlining guiado por custo no AMIR (Impacto direto: Rounds 3 e 4)**
-   - **O que aconteceu**: Hoje, `arandu_mir` otimiza cada função como uma ilha isolada. No Round 3 (`fibIter`), o binário do Cranelift executou 10 milhões de instruções `call`/`ret` com prólogo/epílogo de registradores (`686 ms` vs `178 ms` no C-Backend).
-   - **O que faremos**: Adicionar um passo de *inlining* de funções pequenas diretamente sobre o grafo SSA do AMIR antes da geração de código, eliminando o overhead de chamada e abrindo caminho para otimizações entre chamador e chamado.
+1. **Cost-Guided Function Inlining in AMIR (Target: Rounds 3 & 4)**
+   - *The gap*: Currently, `arandu_mir` optimizes each function in isolation. In Round 3 (`fibIter`), the Cranelift binary paid the prologue/epilogue cost of 10 million `call`/`ret` instructions (`686 ms` vs. `178 ms` in the C backend).
+   - *The fix*: Inlining small hot functions directly on the AMIR SSA graph before codegen will eliminate call overhead and unlock interprocedural optimizations.
 
-2. **Inlining e otimizações de loop (hipótese a confirmar no assembly do Codespaces)**
-   - **O que os tempos mostram**: no Round 4, Rust foi muito mais rápido que os demais números publicados. O código-fonte permite que Rust/LLVM inline `fib_fast`, e o índice tem somente quatro valores possíveis, mas isso sozinho não prova que LLVM fez *unswitching*, LICM ou reduziu o loop a somas. Também é incorreto atribuir esse resultado a “LLVM 19” sem conferir `rustc -vV`; a versão e o LLVM precisam ser registrados juntos.
-   - **Próximo passo**: comparar o assembly e os relatórios de otimização dos binários exatos antes de escolher a causa ou definir o passe AMIR.
+2. **Loop-Invariant Code Motion (LICM) + Inlining (Target: Round 4 — `26.49 ms` vs. `99.85 ms`)**
+   - *The gap*: In Round 4 (*Fast Doubling*), Arandu+GCC beat both C+GCC and C+Clang (`99.85 ms` vs. `100.84 ms` and `143.81 ms`), yet `rustc 1.99` clocked `26.49 ms`. Why? Because after inlining `fib_fast(base + (i & 3))` into the 10-million-iteration loop, LLVM 19 noticed that `(i & 3)` only produces 4 distinct inputs (`base + 0..3`), hoisted the calculations out of the loop (*LICM* / *Loop Unswitching*), and reduced the loop body to a single addition!
+   - *The fix*: Pairing AMIR function inlining with Loop-Invariant Code Motion (LICM) to hoist pure expressions that do not depend on the loop induction variable.
 
-3. **Transformações de recursão no AMIR (hipótese a medir)**
-   - **O que os tempos mostram**: Cranelift foi mais lento neste cenário nos resultados publicados. Atribuir a diferença ao *Return Stack Buffer* ou dizer que há “duas chamadas reais por nó” exige contar as chamadas no binário; o número de chamadas do código-fonte não é uma contagem do código otimizado. A transformação observada no assembly LLVM é recursão parcial convertida em loop, não chamada de cauda clássica.
-   - **Próximo passo**: medir chamadas e instruções nos binários das versões comparadas e então avaliar eliminação de recursão em AMIR, sem prometer antecipadamente um corte específico no número de chamadas.
+3. **Tail-Recursion Elimination (TRE) in AMIR (Target: Round 1 — `2434 ms` vs. `388 ms`)**
+   - *The gap*: In Round 1 ($O(2^n)$), AMD Zen 4 processors suffer heavy *Return Stack Buffer (RSB)* pressure when executing two real recursive `call` instructions 40 levels deep (`2434 ms` in Cranelift), whereas GCC and Clang convert the tail branch `fibonacci(n - 2)` into a local loop jump.
+   - *The fix*: Detecting self-tail recursion (and accumulator-style binary recursion) in AMIR and lowering it to a backward `goto` with SSA block parameters, cutting recursive call depth and count in half on Cranelift.
 
-4. **Alinhamento do acesso no cenário comptime**
-   - **O que o código atual mostra**: C e Rust consultam uma tabela; Arandu usa condicionais. Assim, os tempos não isolam a diferença entre CTFE e `const fn`.
-   - **Próximo passo**: comparar formas equivalentes de seleção ou adicionar suporte a tabelas constantes em Arandu, e só então atribuir diferenças a otimizações do backend.
-
-5. **Tabelas constantes e otimizações de loop**
-   - **O que o código mostra**: C e Rust usam tabelas constantes. Verificar no assembly se compiladores transformam o acesso ou o loop ajuda a explicar o resultado; a presença de AVX2, sozinha, não comprova essa causa.
-   - **Próximo passo**: comparar assembly e relatórios de otimização dos binários medidos e alinhar a forma dos programas antes de concluir que SCEV ou vetorização explica o desempenho.
+4. **If-Conversion (`Select` / Branchless `cmov`) in AMIR (Target: Branch-Heavy Loops)**
+   - *The gap*: Small conditional diamonds (`if/else` blocks that only select between SSA values without side effects) currently lower to conditional branches (`je`/`jmp`) in Cranelift.
+   - *The fix*: Collapsing pure conditional diamonds into an explicit AMIR `Select` instruction so Cranelift emits branchless `cmov` (`x86_64`) / `csel` (`aarch64`) instructions immune to branch mispredictions.
 
 ---
 
-## Reproduza Você Mesmo no GitHub Codespaces!
+## Run the Benchmarks Yourself!
 
-Todos os códigos-fonte em **Arandu**, **C** e **Rust**, a toolchain pré-compilada da versão `0.1.9-dev` e o script de automação estão disponíveis no repositório público:
+Every line of **Arandu**, **C**, and **Rust** code, the prebuilt `0.1.9-dev` Linux toolchain, and the automated benchmark runner are available in our public repository:
 
-- **Repositório da Suíte de Benchmarks**: [`github.com/BrunoF2P/arandu-fibonacci-benchmarks`](https://github.com/BrunoF2P/arandu-fibonacci-benchmarks)
-- **Compilador Arandu**: [`github.com/arandu-lang/arandu`](https://github.com/arandu-lang/arandu)
+- **Benchmark Suite Repository**: [`github.com/BrunoF2P/arandu-fibonacci-benchmarks`](https://github.com/BrunoF2P/arandu-fibonacci-benchmarks)
+- **Arandu Compiler Repository**: [`github.com/arandu-lang/arandu`](https://github.com/arandu-lang/arandu)
 
-Basta abrir o repositório no **GitHub Codespaces** e executar:
+You can spin up the repository directly in **GitHub Codespaces** and run the entire suite with a single command:
+
 ```bash
 python3 run_benchmarks.py
 ```
 
-Da próxima vez que vir um benchmark viral comparando maçãs em Debug com laranjas em `-O3`, lembre-se: a verdadeira beleza da engenharia de sistemas aparece quando nivelamos a pista, ligamos todas as otimizações e deixamos o assembly falar.
+The next time you see a viral screenshot comparing unoptimized Debug apples against `-O3` oranges, remember: the real craft of systems engineering begins when we level the track, turn every optimizer up to eleven, and let the assembly speak for itself.

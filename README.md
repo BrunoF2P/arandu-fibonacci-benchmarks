@@ -59,11 +59,11 @@ Execution times (`min` / `median` across 7 runs after warmup):
 
 | Scenario | Arandu (`emit-c --opt` + GCC `-O3`) | Arandu (`emit-c --opt` + Clang `-O3`) | Arandu (`build --release` Cranelift) | Rust (`-C opt-level=3 -C lto=fat`) | C (`GCC -O3` / `Clang -O3`) |
 | :--- | ---: | ---: | ---: | ---: | ---: |
-| **01. Naive Recursive $O(2^n)$ (`0..=40`)** | **388.63 ms** (`425.45 ms`) | **769.63 ms** (`789.74 ms`) | 2434.93 ms (`2458.47 ms`) | 804.95 ms (`888.96 ms`) | **379.04 ms** (GCC) / 764.09 ms (Clang) |
-| **02. Binet $O(1)$ FP (`10M` iter)** | **148.11 ms** 🏆 (`153.07 ms`) | **156.88 ms** 🥈 (`159.50 ms`) | **159.45 ms** 🥉 (`166.89 ms`) | 179.72 ms (`182.36 ms`) | 169.23 ms (GCC) / 162.18 ms (Clang) |
-| **03. Iterative DP $O(n)$ (`10M` iter)** | 341.39 ms (`385.33 ms`) | **178.78 ms** 🥈 (`182.77 ms`) | 686.18 ms (`720.60 ms`) | **177.73 ms** 🏆 (`180.73 ms`) | 338.48 ms (GCC) / 179.99 ms (Clang) |
-| **04. Fast Doubling $O(\log n)$ (`10M`)** | **99.85 ms** 🥈 (`101.37 ms`) | 143.06 ms (`144.05 ms`) | **127.52 ms** (`149.30 ms`) | **26.49 ms** 🏆 (`27.59 ms`) | 100.84 ms (GCC) / 143.81 ms (Clang) |
-| **05. Compile-Time (`comptime` `[4]u64`)** | **6.63 ms** (`6.78 ms`) | **0.50 ms** 🏆 (`0.51 ms`) | **16.70 ms** (`18.50 ms`) | **1.24 ms** (`1.35 ms`) | *4.40 ms (GCC) / 0.82 ms (Clang) — static table* |
+| **01. Naive Recursive $O(2^n)$ (`0..=40`)** | **389.19 ms** (`405.16 ms`) | **765.16 ms** (`780.55 ms`) | 2430.62 ms (`2443.88 ms`) | 803.72 ms (`862.33 ms`) | **374.22 ms** (GCC) / 764.91 ms (Clang) |
+| **02. Binet $O(1)$ FP (`10M` iter)** | **147.18 ms** 🏆 (`151.24 ms`) | **156.72 ms** 🥈 (`159.95 ms`) | **158.62 ms** 🥉 (`160.73 ms`) | 180.45 ms (`194.37 ms`) | 155.76 ms (GCC) / 161.14 ms (Clang) |
+| **03. Iterative DP $O(n)$ (`10M` iter)** | 341.69 ms (`350.02 ms`) | **178.67 ms** 🥈 (`182.21 ms`) | 691.43 ms (`727.09 ms`) | **175.83 ms** 🏆 (`183.19 ms`) | 337.68 ms (GCC) / 179.85 ms (Clang) |
+| **04. Fast Doubling $O(\log n)$ (`10M`)** | **99.86 ms** 🥈 (`100.59 ms`) | 143.39 ms (`144.59 ms`) | **126.47 ms** (`132.61 ms`) | **26.50 ms** 🏆 (`27.49 ms`) | 99.99 ms (GCC) / 144.50 ms (Clang) |
+| **05. Compile-Time (`comptime` `[4]u64`)** | 8.29 ms (`8.50 ms`) | **0.80 ms** 🏆 (`0.84 ms`) | **11.90 ms** (`12.32 ms`) | 1.23 ms (`1.36 ms`) | *4.41 ms (GCC) / 0.94 ms (Clang) — static table* |
 
 ---
 

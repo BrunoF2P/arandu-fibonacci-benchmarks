@@ -83,16 +83,16 @@ func main(): int {
 
 | Compiler / Backend | Min (ms) | Median (ms) | Mean ± StdDev | Output (`fib(40)`) |
 | :--- | ---: | ---: | ---: | :--- |
-| **C (GCC 13.3 `-O3 -march=native -flto`)** | **379.04 ms** 🏆 | **384.80 ms** | 393.48 ± 16.96 ms | `102334155` |
-| **Arandu (`emit-c --opt` + GCC 13.3 `-O3`)** | **388.63 ms** 🥈 | **425.45 ms** | 418.05 ± 21.07 ms | `102334155` |
-| **C (Clang 18.1 `-O3 -march=native -flto`)** | 764.09 ms | 783.35 ms | 788.32 ± 24.87 ms | `102334155` |
-| **Arandu (`emit-c --opt` + Clang 18.1 `-O3`)** | **769.63 ms** | **789.74 ms** | 792.20 ± 18.89 ms | `102334155` |
-| **Rust (`rustc 1.99` `-O3`, `lto=fat`)** | 804.95 ms | 888.96 ms | 995.47 ± 256.03 ms | `102334155` |
-| **Arandu (`build --release` Cranelift)** | 2434.93 ms | 2458.47 ms | 2455.38 ± 14.46 ms | `102334155` |
+| **C (GCC 13.3 `-O3 -march=native -flto`)** | **374.22 ms** 🏆 | **383.73 ms** | 426.92 ± 88.20 ms | `102334155` |
+| **Arandu (`emit-c --opt` + GCC 13.3 `-O3`)** | **389.19 ms** 🥈 | **405.16 ms** | **411.85 ± 25.99 ms** | `102334155` |
+| **C (Clang 18.1 `-O3 -march=native -flto`)** | 764.91 ms | 771.87 ms | 783.75 ± 30.16 ms | `102334155` |
+| **Arandu (`emit-c --opt` + Clang 18.1 `-O3`)** | **765.16 ms** | **780.55 ms** | 786.02 ± 16.99 ms | `102334155` |
+| **Rust (`rustc 1.99` `-O3`, `lto=fat`)** | 803.72 ms | 862.33 ms | 917.64 ± 141.40 ms | `102334155` |
+| **Arandu (`build --release` Cranelift)** | 2430.62 ms | 2443.88 ms | 2448.35 ± 14.14 ms | `102334155` |
 
 ### What does the assembly (`objdump -d`) tell us?
 
-Why did **GCC** (`379 ms`) and **Arandu + GCC** (`388 ms`) run **more than twice as fast** as **Clang** (`764 ms`) and **Rust** (`804 ms`)?
+Why did **GCC** (`374.22 ms`) and **Arandu + GCC** (`389.19 ms`) run **more than twice as fast** as **Clang** (`764.91 ms`) and **Rust** (`803.72 ms`)?
 
 Inspecting the LLVM-generated assembly (shared by both Clang and `rustc`), we see classic *Tail-Call Elimination*: the second recursive call `fibonacci(n - 2)` is turned into a backward loop jump (`add $-2, %rbx; ja 1150`), while `fibonacci(n - 1)` remains a real `callq` instruction:
 
@@ -115,9 +115,9 @@ Inspecting the LLVM-generated assembly (shared by both Clang and `rustc`), we se
     ja     1150
 ```
 
-**GCC** goes much further: on top of eliminating the tail recursion, it performs **6-level deep recursive unrolling/inlining** inside `fibonacci` itself (`sub $0xd8, %rsp`), collapsing entire sub-trees of recursive calls into direct register additions across `%r11`–`%r15`. Because Arandu's `emit-c --opt` emits clean SSA basic blocks, GCC applies this exact transformation to Arandu's code (`388 ms`), beating both Clang (`764 ms`) and Rust (`804 ms`) by more than 2x.
+**GCC** goes much further: on top of eliminating the tail recursion, it performs **6-level deep recursive unrolling/inlining** inside `fibonacci` itself (`sub $0xd8, %rsp`), collapsing entire sub-trees of recursive calls into direct register additions across `%r11`–`%r15`. Because Arandu's `emit-c --opt` emits clean SSA basic blocks, GCC applies this exact transformation to Arandu's code (`389.19 ms` min, and an even lower mean of `411.85 ms` vs. C's `426.92 ms`), beating both Clang (`764.91 ms`) and Rust (`803.72 ms`) by more than 2x.
 
-Meanwhile, **Cranelift (`2434 ms`)** executes the literal recursive tree without tail-call elimination—performing nearly **900 million real `call`/`ret` pairs** in 2.4 seconds.
+Meanwhile, **Cranelift (`2430.62 ms`)** executes the literal recursive tree without tail-call elimination—performing nearly **900 million real `call`/`ret` pairs** in 2.4 seconds.
 
 ---
 
@@ -147,14 +147,14 @@ Here is what happens on AMD EPYC Zen 4 with `fma` and `avx2` enabled:
 
 | Compiler / Backend | Min (ms) | Median (ms) | Mean ± StdDev | Checksum (`u64`) |
 | :--- | ---: | ---: | ---: | :--- |
-| **Arandu (`emit-c --opt` + GCC 13.3 `-O3`)** | **148.11 ms** 🏆 | **153.07 ms** 🏆 | **155.59 ± 11.54 ms** | `14864523082006142394` |
-| **Arandu (`emit-c --opt` + Clang 18.1 `-O3`)** | **156.88 ms** 🥈 | **159.50 ms** 🥈 | **166.19 ± 13.58 ms** | `14864523082006142394` |
-| **Arandu (`build --release` Cranelift)** | **159.45 ms** 🥉 | **166.89 ms** 🥉 | **175.25 ± 20.09 ms** | `14864523082006142394` |
-| **C (Clang 18.1 `-O3 -march=native -flto`)** | 162.18 ms | 178.24 ms | 198.03 ± 36.73 ms | `14864523082006142394` |
-| **C (GCC 13.3 `-O3 -march=native -flto`)** | 169.23 ms | 317.82 ms | 302.12 ± 103.82 ms | `14864523082006142394` |
-| **Rust (`rustc 1.99` `-O3`, `lto=fat`)** | 179.72 ms | 182.36 ms | 195.66 ± 18.64 ms | `14864523082006142394` |
+| **Arandu (`emit-c --opt` + GCC 13.3 `-O3`)** | **147.18 ms** 🏆 | **151.24 ms** 🏆 | 164.65 ± 21.66 ms | `14864523082006142394` |
+| **C (GCC 13.3 `-O3 -march=native -flto`)** | 155.76 ms | 166.58 ms | 204.83 ± 70.08 ms | `14864523082006142394` |
+| **Arandu (`emit-c --opt` + Clang 18.1 `-O3`)** | **156.72 ms** | **159.95 ms** 🥈 | **162.41 ± 5.78 ms** | `14864523082006142394` |
+| **Arandu (`build --release` Cranelift)** | **158.62 ms** | **160.73 ms** 🥉 | **164.07 ± 8.10 ms** | `14864523082006142394` |
+| **C (Clang 18.1 `-O3 -march=native -flto`)** | 161.14 ms | 171.06 ms | 179.90 ± 20.76 ms | `14864523082006142394` |
+| **Rust (`rustc 1.99` `-O3`, `lto=fat`)** | 180.45 ms | 194.37 ms | 190.04 ± 7.96 ms | `14864523082006142394` |
 
-Look at the podium for Round 2: **Arandu sweeps 1st, 2nd, and 3rd place overall**—and our direct native **Cranelift backend (`159.45 ms` min / `166.89 ms` med)** outperforms both handwritten C (`162.18 ms` / `169.23 ms`) and Rust (`179.72 ms`)!
+Look at the median and mean columns for Round 2: **all three Arandu configurations (`151.24 ms`, `159.95 ms`, and `160.73 ms` median) take 1st, 2nd, and 3rd place**, and our direct native **Cranelift backend (`158.62 ms` min / `160.73 ms` med)** outperforms both C with Clang (`161.14 ms` / `171.06 ms`) and Rust (`180.45 ms` / `194.37 ms`)!
 
 ---
 
@@ -197,27 +197,27 @@ We run **10,000,000 calls** computing `fib(90..93)` (seeded at runtime via `argc
 
 | Compiler / Backend | Min (ms) | Median (ms) | Mean ± StdDev |
 | :--- | ---: | ---: | ---: |
-| **Rust (`rustc 1.99` `-O3`, `lto=fat`)** | **177.73 ms** 🏆 | **180.73 ms** 🏆 | 212.89 ± 78.71 ms |
-| **Arandu (`emit-c --opt` + Clang 18.1 `-O3`)** | **178.78 ms** 🥈 | **182.77 ms** 🥈 | **186.71 ± 8.19 ms** |
-| **C (Clang 18.1 `-O3 -march=native -flto`)** | 179.99 ms | 183.55 ms | 193.23 ± 17.81 ms |
-| **C (GCC 13.3 `-O3 -march=native -flto`)** | 338.48 ms | 379.29 ms | 480.72 ± 245.97 ms |
-| **Arandu (`emit-c --opt` + GCC 13.3 `-O3`)** | 341.39 ms | 385.33 ms | 380.16 ± 22.23 ms |
-| **Arandu (`build --release` Cranelift)** | 686.18 ms | 720.60 ms | 735.11 ± 50.45 ms |
+| **Rust (`rustc 1.99` `-O3`, `lto=fat`)** | **175.83 ms** 🏆 | 183.19 ms | 197.16 ± 34.95 ms |
+| **Arandu (`emit-c --opt` + Clang 18.1 `-O3`)** | **178.67 ms** 🥈 | **182.21 ms** | 187.79 ± 16.13 ms |
+| **C (Clang 18.1 `-O3 -march=native -flto`)** | 179.85 ms | **181.15 ms** | **187.26 ± 12.01 ms** |
+| **C (GCC 13.3 `-O3 -march=native -flto`)** | 337.68 ms | 373.78 ms | 372.40 ± 30.07 ms |
+| **Arandu (`emit-c --opt` + GCC 13.3 `-O3`)** | 341.69 ms | **350.02 ms** | **356.41 ± 15.15 ms** |
+| **Arandu (`build --release` Cranelift)** | 691.43 ms | 727.09 ms | 725.55 ± 26.54 ms |
 
 ### Round 4 — Fast Doubling $O(\log n)$ Exact `u64` (`10,000,000` calls)
 
 | Compiler / Backend | Min (ms) | Median (ms) | Mean ± StdDev |
 | :--- | ---: | ---: | ---: |
-| **Rust (`rustc 1.99` `-O3`, `lto=fat`)** | **26.49 ms** 🏆 | **27.59 ms** 🏆 | **28.10 ± 1.68 ms** |
-| **Arandu (`emit-c --opt` + GCC 13.3 `-O3`)** | **99.85 ms** 🥈 | **101.37 ms** 🥈 | **104.17 ± 6.32 ms** |
-| **C (GCC 13.3 `-O3 -march=native -flto`)** | 100.84 ms | 104.17 ms | 107.87 ± 10.22 ms |
-| **Arandu (`build --release` Cranelift)** | **127.52 ms** | **149.30 ms** | 173.94 ± 58.76 ms |
-| **Arandu (`emit-c --opt` + Clang 18.1 `-O3`)** | 143.06 ms | **144.05 ms** | 145.79 ± 5.27 ms |
-| **C (Clang 18.1 `-O3 -march=native -flto`)** | 143.81 ms | 210.47 ms | 237.85 ± 98.95 ms |
+| **Rust (`rustc 1.99` `-O3`, `lto=fat`)** | **26.50 ms** 🏆 | **27.49 ms** 🏆 | **28.14 ± 2.06 ms** |
+| **Arandu (`emit-c --opt` + GCC 13.3 `-O3`)** | **99.86 ms** 🥈 | **100.59 ms** 🥈 | **101.20 ± 1.22 ms** |
+| **C (GCC 13.3 `-O3 -march=native -flto`)** | 99.99 ms | 100.60 ms | 117.81 ± 24.05 ms |
+| **Arandu (`build --release` Cranelift)** | **126.47 ms** | **132.61 ms** | **132.08 ± 5.57 ms** |
+| **Arandu (`emit-c --opt` + Clang 18.1 `-O3`)** | 143.39 ms | **144.59 ms** | 147.70 ± 5.37 ms |
+| **C (Clang 18.1 `-O3 -march=native -flto`)** | 144.50 ms | 147.86 ms | 197.93 ± 68.70 ms |
 
 Two takeaways stand out immediately:
-1. **Binet's formula is neither accurate nor the fastest**: Even though `pow()` is technically "$O(1)$", it takes `~148–182 ms` for 10 million calls and loses integer precision. Exact 64-bit integer *Fast Doubling* $O(\log n)$ runs in **`99.85 ms`** in Arandu+GCC and **`127.52 ms`** in Arandu Cranelift!
-2. **Arandu matches or beats C across the board**: In Round 3, Arandu+Clang (`178.78 ms`) is within `1 ms` of Rust (`177.73 ms`) and edges out C+Clang (`179.99 ms`). In Round 4, **Arandu+GCC (`99.85 ms`) beats both C+GCC (`100.84 ms`) and C+Clang (`143.81 ms`)**, while **Arandu's native Cranelift backend (`127.52 ms`) beats C compiled with Clang `-O3` (`143.81 ms`)**!
+1. **Binet's formula is neither accurate nor the fastest**: Even though `pow()` is technically "$O(1)$", it takes `~147–180 ms` for 10 million calls and loses integer precision. Exact 64-bit integer *Fast Doubling* $O(\log n)$ runs in **`99.86 ms`** in Arandu+GCC and **`126.47 ms`** in Arandu Cranelift!
+2. **Arandu matches or beats C across the board**: In Round 3, Arandu+Clang (`178.67 ms` min / `182.21 ms` med) is virtually indistinguishable from Rust (`175.83 ms` / `183.19 ms`) and C+Clang (`179.85 ms` / `181.15 ms`). In Round 4, **Arandu+GCC (`99.86 ms` min / `100.59 ms` med) beats both C+GCC (`99.99 ms` / `100.60 ms`) and C+Clang (`144.50 ms` / `147.86 ms`)**, while **Arandu's native Cranelift backend (`126.47 ms` min / `132.61 ms` med) decisively beats C compiled with Clang `-O3` (`144.50 ms` / `147.86 ms`)**!
 
 ---
 
@@ -264,14 +264,18 @@ func main(): int {
 
 When we inspect the generated AMIR (`arandu amir --opt`), `fibConst` is completely gone from `main`. The four 64-bit Fibonacci numbers (`2880067194370816120`, `4660046610375530309`, `7540113804746346429`, `12200160415121876738`) are baked directly into the binary as compile-time constants:
 
-| Execution Mode (10M queries to `fib(90..93)`) | Runtime Calculation (Round 3) | With `comptime` / `const fn` | Speedup |
-| :--- | ---: | ---: | ---: |
-| **Arandu (`emit-c --opt` + Clang `-O3`)** | 178.78 ms | **0.50 ms** 🏆 | **357x faster** |
-| **Rust (`rustc` `const fn` + `-O3` AVX2)** | 177.73 ms | **1.24 ms** | **143x faster** |
-| **Arandu (`emit-c --opt` + GCC `-O3`)** | 341.39 ms | **6.63 ms** | **51x faster** |
-| **Arandu (`build --release` Cranelift)** | 686.18 ms | **16.70 ms** | **41x faster** |
+| Compiler / Backend (10M queries to `fib(90..93)`) | Min (ms) | Median (ms) | Mean ± StdDev | Speedup vs. Round 3 |
+| :--- | ---: | ---: | ---: | ---: |
+| **Arandu (`comptime` + `emit-c` + Clang 18.1 `-O3`)** | **0.80 ms** 🏆 | **0.84 ms** 🏆 | **0.87 ± 0.08 ms** | **223x faster** |
+| **C (`static const` manual table + Clang 18.1 `-O3`)** | 0.94 ms | 1.11 ms | 1.63 ± 1.03 ms | 191x faster |
+| **Rust (`const fn` + `rustc 1.99` `-O3` AVX2)** | 1.23 ms | 1.36 ms | 1.61 ± 0.52 ms | 143x faster |
+| **C (`static const` manual table + GCC 13.3 `-O3`)** | 4.41 ms | 4.49 ms | 4.98 ± 1.24 ms | 76x faster |
+| **Arandu (`comptime` + `emit-c` + GCC 13.3 `-O3`)** | 8.29 ms | 8.50 ms | 9.39 ± 2.23 ms | 41x faster |
+| **Arandu (`comptime` + `build --release` Cranelift)** | **11.90 ms** | **12.32 ms** | **13.67 ± 2.71 ms** | **58x faster** |
 
-With `comptime` arrays and typed C99 array storage (`ArType_Array_4_uint64_t`), Clang's *Scalar Evolution (SCEV)* pass recognizes the periodic 4-element table lookup across `10,000,000` iterations and collapses the entire loop into a single multiplication by `2,500,000` (`imul $0x2625a0, %rcx, %r15`), completing in **0.50 ms**! And even on the direct **Cranelift** backend, `comptime` slashes runtime from **`686.18 ms` down to `16.70 ms`—a 41x speedup**.
+Look at what just happened in Round 5:
+1. **Arandu (`comptime` + Clang `-O3`) takes 1st place overall at `0.80 ms` (min) / `0.84 ms` (median)**—beating both C with a hand-written static table (`0.94 ms` / `1.11 ms`) and Rust's `const fn` (`1.23 ms` / `1.36 ms`)! Because Arandu lowers `[4]u64` into an alias-clean typed C array (`typedef struct AR_MAY_ALIAS { _Alignas(8) uint64_t data[4]; }`), Clang's *Scalar Evolution (SCEV)* and vectorizer collapse the 10-million-iteration periodic lookup into a constant-time calculation.
+2. **On the direct Cranelift backend (`arandu build --release`), `comptime` array evaluation dropped execution time from `691.43 ms` down to `11.90 ms`—a 58x speedup!**
 
 ---
 
@@ -281,22 +285,22 @@ Building a serious compiler requires looking at benchmarks without rose-tinted g
 
 ### What our foundation already proves today:
 1. **A zero-overhead middle-end (AMIR)**: Whenever our `emit-c --opt` backend hands optimized AMIR to GCC or Clang, Arandu matches—or outright beats—handwritten C and optimized Rust across all five rounds. Our ownership SSA model, type system, and memory model (`promotions=0 checks=0` in GenRef) introduce zero semantic bloat.
-2. **A competitive native Cranelift backend**: Despite compiling in a fraction of the time of LLVM or GCC, `arandu build --release` beat both C (Clang) and Rust in Round 2 (`159 ms` vs. `162 ms` and `179 ms`) and beat Clang `-O3` in Round 4 (`127 ms` vs. `143 ms`).
-3. **First-class `comptime` evaluation**: Tightly integrated into our Salsa incremental query engine, overflow-safe (`T046`), and capable of materializing both scalars and arrays at compile time.
+2. **A competitive native Cranelift backend**: Despite compiling in a fraction of the time of LLVM or GCC, `arandu build --release` beat both C (Clang) and Rust in Round 2 (`158.62 ms` vs. `161.14 ms` and `180.45 ms`) and beat Clang `-O3` in Round 4 (`126.47 ms` vs. `144.50 ms`).
+3. **First-class `comptime` evaluation**: Tightly integrated into our Salsa incremental query engine, overflow-safe (`T046`), and capable of materializing both scalars and arrays at compile time—taking 1st place overall in Round 5 (`0.80 ms`) and accelerating native Cranelift builds by **58x**.
 
 ### Our roadmap for the AMIR optimizer (`arandu_mir`):
 Cross-referencing the AMD EPYC Zen 4 numbers between `Cranelift --release`, `emit-c --opt`, and `rustc 1.99` gives us a surgical roadmap of **four high-impact optimization passes** to implement directly inside **AMIR (`arandu_mir`)**, which will automatically benefit every backend (Cranelift, C, and WebAssembly):
 
 1. **Cost-Guided Function Inlining in AMIR (Target: Rounds 3 & 4)**
-   - *The gap*: Currently, `arandu_mir` optimizes each function in isolation. In Round 3 (`fibIter`), the Cranelift binary paid the prologue/epilogue cost of 10 million `call`/`ret` instructions (`686 ms` vs. `178 ms` in the C backend).
+   - *The gap*: Currently, `arandu_mir` optimizes each function in isolation. In Round 3 (`fibIter`), the Cranelift binary paid the prologue/epilogue cost of 10 million `call`/`ret` instructions (`691.43 ms` vs. `178.67 ms` in the C backend).
    - *The fix*: Inlining small hot functions directly on the AMIR SSA graph before codegen will eliminate call overhead and unlock interprocedural optimizations.
 
-2. **Loop-Invariant Code Motion (LICM) + Inlining (Target: Round 4 — `26.49 ms` vs. `99.85 ms`)**
-   - *The gap*: In Round 4 (*Fast Doubling*), Arandu+GCC beat both C+GCC and C+Clang (`99.85 ms` vs. `100.84 ms` and `143.81 ms`), yet `rustc 1.99` clocked `26.49 ms`. Why? Because after inlining `fib_fast(base + (i & 3))` into the 10-million-iteration loop, LLVM 19 noticed that `(i & 3)` only produces 4 distinct inputs (`base + 0..3`), hoisted the calculations out of the loop (*LICM* / *Loop Unswitching*), and reduced the loop body to a single addition!
+2. **Loop-Invariant Code Motion (LICM) + Inlining (Target: Round 4 — `26.50 ms` vs. `99.86 ms`)**
+   - *The gap*: In Round 4 (*Fast Doubling*), Arandu+GCC beat both C+GCC and C+Clang (`99.86 ms` vs. `99.99 ms` and `144.50 ms`), yet `rustc 1.99` clocked `26.50 ms`. Why? Because after inlining `fib_fast(base + (i & 3))` into the 10-million-iteration loop, LLVM 19 noticed that `(i & 3)` only produces 4 distinct inputs (`base + 0..3`), hoisted the calculations out of the loop (*LICM* / *Loop Unswitching*), and reduced the loop body to a single addition!
    - *The fix*: Pairing AMIR function inlining with Loop-Invariant Code Motion (LICM) to hoist pure expressions that do not depend on the loop induction variable.
 
-3. **Tail-Recursion Elimination (TRE) in AMIR (Target: Round 1 — `2434 ms` vs. `388 ms`)**
-   - *The gap*: In Round 1 ($O(2^n)$), AMD Zen 4 processors suffer heavy *Return Stack Buffer (RSB)* pressure when executing two real recursive `call` instructions 40 levels deep (`2434 ms` in Cranelift), whereas GCC and Clang convert the tail branch `fibonacci(n - 2)` into a local loop jump.
+3. **Tail-Recursion Elimination (TRE) in AMIR (Target: Round 1 — `2430.62 ms` vs. `389.19 ms`)**
+   - *The gap*: In Round 1 ($O(2^n)$), AMD Zen 4 processors suffer heavy *Return Stack Buffer (RSB)* pressure when executing two real recursive `call` instructions 40 levels deep (`2430.62 ms` in Cranelift), whereas GCC and Clang convert the tail branch `fibonacci(n - 2)` into a local loop jump.
    - *The fix*: Detecting self-tail recursion (and accumulator-style binary recursion) in AMIR and lowering it to a backward `goto` with SSA block parameters, cutting recursive call depth and count in half on Cranelift.
 
 4. **If-Conversion (`Select` / Branchless `cmov`) in AMIR (Target: Branch-Heavy Loops)**

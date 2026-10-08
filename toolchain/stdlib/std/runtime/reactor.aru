@@ -1,0 +1,115 @@
+//! Experimental host reactor for timers and socket readiness.
+//!
+//! ## Overview
+//!
+//! `EpollReactor` wraps the host polling backend. It can arm timers, poll events, and register a socket with a waker.
+//!
+//! ## Safety
+//! The host backend is selected at runtime; `reactorBackend` reports its
+//! code. Reactor and socket handles are host resources and must be released
+//! through the corresponding destroy or close operation.
+//!
+//! ## Platform
+//! `native`
+
+module std.runtime.reactor
+
+/// experimental — not Minimal 0.1 — epoll / io_uring reactor.
+///
+/// Moved out of the former `std.runtime` monolith. Owns the reactor only;
+/// sockets live in `std.net` (registration takes a raw host socket id), so the
+/// reactor stays socket-agnostic.
+
+import std.runtime.waker as waker
+
+extern "C" {
+    /// Host reactor creation.
+    func ar_rt_reactor_create(): int
+    /// Host reactor destruction.
+    func ar_rt_reactor_destroy(id: int): void
+    /// Host reactor sleep in milliseconds.
+    func ar_rt_reactor_sleep_ms(id: int, ms: int): int
+    /// Host reactor timer arming in milliseconds.
+    func ar_rt_reactor_arm_timer_ms(id: int, ms: int): int
+    /// Host reactor event polling with a millisecond timeout.
+    func ar_rt_reactor_poll_ms(id: int, timeout_ms: int): int
+    /// Host query for the active reactor backend.
+    func ar_rt_reactor_backend(): int
+    /// Host registration of a socket and waker with a reactor.
+    func ar_rt_reactor_register_socket(reactor_id: int, sock_id: int, events: int, waker_id: int): int
+}
+
+/// experimental — not Minimal 0.1
+public struct EpollReactor {
+    /// Opaque host handle.
+    id: int
+}
+
+/// 0 = portable, 1 = epoll, 2 = io_uring (runtime detect).
+public func reactorBackend(): int {
+    unsafe {
+        return ar_rt_reactor_backend()
+    }
+}
+
+/// Creates a reactor through the selected host backend.
+///
+/// A negative stored `id` reports host creation failure; this constructor
+/// does not wrap that status in `Result`. Close a valid reactor with
+/// `EpollReactor.close`.
+public func EpollReactor.new(): EpollReactor {
+    unsafe {
+        return EpollReactor { id: ar_rt_reactor_create() }
+    }
+}
+
+/// Idempotently closes the reactor's host handle and invalidates this wrapper.
+public func EpollReactor.close(self: mut ref EpollReactor): void {
+    if self.id >= 0 {
+        unsafe {
+            ar_rt_reactor_destroy(self.id)
+        }
+        self.id = -1
+    }
+}
+
+/// Sleeps through the host reactor for nonnegative `ms` milliseconds.
+///
+/// Returns the host status code; a negative value signals an invalid handle,
+/// invalid duration, or another host failure.
+public func EpollReactor.sleepMs(self: ref EpollReactor, ms: int): int {
+    unsafe {
+        return ar_rt_reactor_sleep_ms(self.id, ms)
+    }
+}
+
+/// Arms a host timer for `ms` milliseconds.
+///
+/// Returns the host integer status. The reactor retains the timer until it
+/// fires or the reactor is closed.
+public func EpollReactor.armTimerMs(self: ref EpollReactor, ms: int): int {
+    unsafe {
+        return ar_rt_reactor_arm_timer_ms(self.id, ms)
+    }
+}
+
+/// Polls for pending timer or socket events with a millisecond timeout.
+///
+/// Returns the host event count or status; a negative value signals failure.
+/// Polling may block for the requested duration.
+public func EpollReactor.pollMs(self: ref EpollReactor, timeoutMs: int): int {
+    unsafe {
+        return ar_rt_reactor_poll_ms(self.id, timeoutMs)
+    }
+}
+
+/// Registers a raw socket (by host id) with the reactor. The socket type lives
+/// in `std.net`; the reactor itself remains socket-agnostic.
+/// `events` uses the read/write readiness bits from `std.net`. The waker is
+/// signaled when a matching event is observed. A negative result is a host
+/// registration failure.
+internal func reactorRegisterSocket(r: ref EpollReactor, sockId: int, events: int, w: ref waker.Waker): int {
+    unsafe {
+        return ar_rt_reactor_register_socket(r.id, sockId, events, w.id)
+    }
+}

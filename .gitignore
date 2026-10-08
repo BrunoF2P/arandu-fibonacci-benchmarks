@@ -1,0 +1,8 @@
+# Compiled binaries and build artifacts
+build/
+**/target/
+**/.arandu/
+**/arandu.lock
+*.o
+*.out
+*.emitted.c

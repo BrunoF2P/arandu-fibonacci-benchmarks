@@ -1,0 +1,27 @@
+import io
+
+@Link("m")
+extern "C" {
+    func pow(base: f64, exp: f64): f64
+}
+
+func fibBinet(n: u64): u64 {
+    let golden_ratio: f64 = 1.618033988749895
+    let inv_sqrt5: f64 = 0.4472135954999579
+    unsafe {
+        let p = pow(golden_ratio, n as f64)
+        return (p * inv_sqrt5 + 0.5) as u64
+    }
+}
+
+func main(): int {
+    let mut acc: u64 = 0
+    let mut i: u64 = 0
+    while i < 10000000 {
+        let n = i % 71
+        set acc = acc + fibBinet(n)
+        set i = i + 1
+    }
+    io.println("${acc}")
+    return 0
+}

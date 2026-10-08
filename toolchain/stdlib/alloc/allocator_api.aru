@@ -1,0 +1,232 @@
+//! Heap allocation and a contiguous bump arena.
+//!
+//! ## Overview
+//!
+//! Global allocation returns `Result` for allocation failures. `BumpArena` allocates aligned regions from a fixed buffer and releases them together on reset or destroy.
+//!
+//! ## Example
+//!
+//! ```arandu
+//! import std.alloc.allocator_api as alloc
+//!
+//! let arena = alloc.BumpArena.tryNew(4096)
+//! // Handle `Result.Err` before using the arena.
+//! ```
+//!
+//! ## Safety
+//! Raw pointers returned by global and bump allocation must be used with
+//! correct bounds and alignment. A bump pointer becomes invalid after reset
+//! or drop; individual bump allocations cannot be freed separately.
+//!
+//! ## Errors
+//! Allocation and layout failures return `AllocError` through `Result`.
+//!
+//! ## Platform
+//! `native` · `wasm32`
+
+module std.alloc.allocator_api
+
+/// Minimal 0.1 — thin allocator surface.
+///
+/// - Global heap via pure-buffer hosts (`ar_vec_*`)
+/// - `BumpArena` — contiguous bump; power-of-two align; `reset` and automatic drop
+///
+/// Fallible paths return `Result<_, AllocError>`.
+
+import std.core.mem as mem
+
+extern "C" {
+    /// Host allocator for a raw byte buffer.
+    func ar_vec_malloc(size: usize): ptr[u8]
+    /// Host deallocator for a raw byte buffer.
+    func ar_vec_buf_free(p: ptr[u8], size: usize): void
+    /// Host allocator that resizes a raw byte buffer.
+    func ar_vec_realloc(p: ptr[u8], oldSize: usize, newSize: usize): ptr[u8]
+}
+
+/// Failure modes for fallible alloc (thin enum).
+public enum AllocError {
+    /// Allocation could not be satisfied.
+    OutOfMemory,
+    /// Requested size or alignment is invalid.
+    InvalidLayout,
+}
+
+/// Process-global heap tag (POD auto-copy, zero fields).
+public struct GlobalAllocator {}
+
+/// Returns a zero-sized tag for the process-global allocator.
+///
+/// This does not allocate; use `globalAlloc` to obtain an owned buffer.
+public func global(): GlobalAllocator {
+    return GlobalAllocator {}
+}
+
+/// Allocates `size` bytes from the process-global heap.
+///
+/// Returns `InvalidLayout` for zero bytes or sizes above the pointer-offset
+/// limit, and `OutOfMemory` if the host allocator cannot satisfy the request.
+/// On success, the caller owns the returned buffer and must pass it to
+/// `globalDealloc` or `globalRealloc`.
+public func globalAlloc(size: usize): Result<ptr[u8], AllocError> {
+    let maxSize: usize = 2147483647 as usize
+    if size == (0 as usize) || size > maxSize {
+        return Result.Err(AllocError.InvalidLayout)
+    }
+    unsafe {
+        let nullp: ptr[u8] = nil
+        let p = ar_vec_malloc(size)
+        if p == nullp {
+            return Result.Err(AllocError.OutOfMemory)
+        }
+        return Result.Ok(p)
+    }
+}
+
+/// Releases a buffer obtained from `globalAlloc` or `globalRealloc`.
+///
+/// `size` must be the allocation's current size. The pointer must not be used
+/// again after this call.
+@Unsafe
+public func globalDealloc(p: ptr[u8], size: usize): void {
+    unsafe {
+        ar_vec_buf_free(p, size)
+    }
+}
+
+/// Resizes a buffer previously obtained from the global allocator.
+///
+/// `oldSize` must describe the current allocation. Zero sizes or sizes above
+/// the pointer-offset limit return `InvalidLayout`; host allocation failure
+/// returns `OutOfMemory`. On success, use the returned pointer and new size
+/// for later access or release.
+@Unsafe
+public func globalRealloc(p: ptr[u8], oldSize: usize, newSize: usize): Result<ptr[u8], AllocError> {
+    let maxSize: usize = 2147483647 as usize
+    if newSize == (0 as usize) || newSize > maxSize || oldSize > maxSize {
+        return Result.Err(AllocError.InvalidLayout)
+    }
+    unsafe {
+        let nullp: ptr[u8] = nil
+        let q = ar_vec_realloc(p, oldSize, newSize)
+        if q == nullp {
+            return Result.Err(AllocError.OutOfMemory)
+        }
+        return Result.Ok(q)
+    }
+}
+
+// ── Bump arena ────────────────────────────────────────────────────────────
+
+/// Contiguous bump region (allocate-only until `reset` or drop).
+public struct BumpArena {
+    /// Pointer to the arena-owned allocation.
+    buffer: ptr[u8]
+    /// Allocated capacity in elements or bytes, as defined by this type.
+    capacity: usize
+    /// Current byte offset from the start of the arena.
+    offset: usize
+}
+
+/// Creates a bump arena backed by one allocation of `capacity` bytes.
+///
+/// Returns `InvalidLayout` for zero capacity and `OutOfMemory` when the host
+/// cannot allocate the buffer. Backing memory is released automatically on drop.
+public func BumpArena.tryNew(capacity: usize): Result<BumpArena, AllocError> {
+    let maxCapacity: usize = 2147483647 as usize
+    if capacity == (0 as usize) || capacity > maxCapacity {
+        return Result.Err(AllocError.InvalidLayout)
+    }
+    unsafe {
+        let nullp: ptr[u8] = nil
+        let p = ar_vec_malloc(capacity)
+        if p == nullp {
+            return Result.Err(AllocError.OutOfMemory)
+        }
+        return Result.Ok(BumpArena {
+            buffer: p,
+            capacity: capacity,
+            offset: 0 as usize,
+        })
+    }
+}
+
+func bumpAlloc(a: mut ref BumpArena, size: usize, align: usize): Result<ptr[u8], AllocError> {
+    let maxCapacity: usize = 2147483647 as usize
+    let nullp: ptr[u8] = nil
+    if a.buffer == nullp || a.capacity == (0 as usize) || a.offset > a.capacity || a.capacity > maxCapacity {
+        return Result.Err(AllocError.OutOfMemory)
+    }
+    let mut padding: usize = 0 as usize
+    if align > (1 as usize) {
+        let rem = a.offset % align
+        if rem != (0 as usize) {
+            padding = align - rem
+        }
+    }
+    if padding > a.capacity - a.offset {
+        return Result.Err(AllocError.OutOfMemory)
+    }
+    let aligned = a.offset + padding
+    if size > a.capacity - aligned {
+        return Result.Err(AllocError.OutOfMemory)
+    }
+    let nextOffset = aligned + size
+    a.offset = nextOffset
+    unsafe {
+        let p = mem.ptrOffset<u8>(a.buffer, aligned as isize)
+        return Result.Ok(p)
+    }
+}
+
+/// Reserves `size` bytes at the next offset rounded up to `align`.
+///
+/// An alignment of zero is treated as one. Returns `OutOfMemory` when the
+/// aligned allocation does not fit; this does not grow the arena. A successful
+/// pointer remains valid until `reset` or drop. Individual allocations cannot
+/// be freed.
+public func BumpArena.alloc(self: mut ref BumpArena, size: usize, align: usize): Result<ptr[u8], AllocError> {
+    return bumpAlloc(self, size, align)
+}
+
+func bumpReset(a: mut ref BumpArena): void {
+    a.offset = 0 as usize
+}
+
+/// Makes the full backing buffer available for allocation again.
+///
+/// This does not free memory or visit previous allocations. All pointers
+/// returned by earlier `alloc` calls become invalid.
+public func BumpArena.reset(self: mut ref BumpArena): void {
+    bumpReset(self)
+}
+
+func bumpRemaining(a: ref BumpArena): usize {
+    return a.capacity - a.offset
+}
+
+/// Returns the bytes between the current offset and the buffer's end.
+///
+/// Alignment padding may prevent an allocation of this exact size from
+/// fitting. This query does not allocate or change the arena.
+public func BumpArena.remaining(self: ref BumpArena): usize {
+    return bumpRemaining(self)
+}
+
+/// Internal helper that releases the arena's backing buffer and resets its capacity and offset.
+func destroyBumpArena(a: mut ref BumpArena): void {
+    if a.capacity > (0 as usize) {
+        unsafe {
+            ar_vec_buf_free(a.buffer, a.capacity)
+        }
+        a.buffer = nil
+        a.capacity = 0 as usize
+        a.offset = 0 as usize
+    }
+}
+
+/// Automatic destructor invoked when an owned `BumpArena` leaves scope.
+@Destructor
+func BumpArena.destroy(self: own BumpArena): void {
+    destroyBumpArena(self)
+}

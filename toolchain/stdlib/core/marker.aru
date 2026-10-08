@@ -1,0 +1,53 @@
+//! Marker interfaces and phantom type ownership.
+//!
+//! ## Overview
+//!
+//! `Copy`, `Send`, and `Sync` express type capabilities. `PhantomData<T>` carries a type relationship without storing a value of `T`.
+//!
+//! ## Example
+//!
+//! ```arandu
+//! import std.core.marker as marker
+//!
+//! let tag = marker.phantom<int>()
+//! ```
+//!
+//! ## Safety
+//! `Send` and `Sync` are checked conservatively for owned storage. A marker
+//! does not make a raw pointer, borrowed view, or destructor-bearing resource
+//! safe to transfer or share across tasks.
+//!
+//! ## Allocations
+//! `PhantomData<T>` has no runtime payload and does not allocate.
+//!
+//! ## Platform
+//! `native` · `wasm32` · `bare-metal`
+
+module std.core.marker
+
+/// Zero-sized type used to mark that a struct logically owns or refers to `T`.
+public struct PhantomData<T> {}
+
+/// Creates a new `PhantomData` instance.
+public func PhantomData.new<T>(): PhantomData<T> {
+    return PhantomData<T> {}
+}
+
+/// Creates a new `PhantomData` instance.
+public func phantom<T>(): PhantomData<T> {
+    return PhantomData<T> {}
+}
+
+/// Compiler-checked marker for scalar storage and aggregates whose bytes can be
+/// duplicated without aliasing ownership or requiring destruction.
+public interface Copy {}
+
+/// Compiler-checked transfer bound for owned scalar storage and aggregates.
+/// Views, raw pointers, coroutine state and resources with destructors are
+/// conservatively rejected until their transfer contracts are supported.
+/// Generic arguments participate in the proof, including PhantomData<T>.
+public interface Send {}
+
+/// Compiler-checked sharing bound for the same conservative owned-storage subset.
+/// This does not establish a borrowed scope lifetime or permit concurrent mutation.
+public interface Sync {}

@@ -1,0 +1,43 @@
+import io
+import std.env as env
+
+func fibConst(n: u64): u64 {
+    if n == 0 {
+        return 0
+    }
+    let mut a: u64 = 0
+    let mut b: u64 = 1
+    let mut i: u64 = 1
+    while i < n {
+        let tmp = a + b
+        set a = b
+        set b = tmp
+        set i = i + 1
+    }
+    return b
+}
+
+func main(): int {
+    let f90: u64 = comptime fibConst(90)
+    let f91: u64 = comptime fibConst(91)
+    let f92: u64 = comptime fibConst(92)
+    let f93: u64 = comptime fibConst(93)
+    let base: u64 = (env.argsLen() as u64) - 1
+    let mut acc: u64 = 0
+    let mut i: u64 = 0
+    while i < 10000000 {
+        let idx = (base + i) & 3
+        if idx == 0 {
+            set acc = acc + f90
+        } else if idx == 1 {
+            set acc = acc + f91
+        } else if idx == 2 {
+            set acc = acc + f92
+        } else {
+            set acc = acc + f93
+        }
+        set i = i + 1
+    }
+    io.println("${acc}")
+    return 0
+}

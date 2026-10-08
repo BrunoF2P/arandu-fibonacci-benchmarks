@@ -1,0 +1,28 @@
+import io
+import std.env as env
+
+func fibIter(n: u64): u64 {
+    let mut a: u64 = 0
+    let mut b: u64 = 1
+    let mut i: u64 = 0
+    while i < n {
+        let tmp = a + b
+        set a = b
+        set b = tmp
+        set i = i + 1
+    }
+    return a
+}
+
+func main(): int {
+    let base: u64 = (env.argsLen() as u64) + 89
+    let mut acc: u64 = 0
+    let mut i: u64 = 0
+    while i < 10000000 {
+        let n = base + (i & 3)
+        set acc = acc + fibIter(n)
+        set i = i + 1
+    }
+    io.println("${acc}")
+    return 0
+}

@@ -1,0 +1,108 @@
+//! Process exit and lightweight process descriptors.
+//!
+//! ## Overview
+//!
+//! `exit` terminates the current process. `ExitStatus`, `Command`, and `Child` hold process-related values; no public spawn operation is currently exposed here.
+//!
+//! ## Safety
+//! `exit` terminates the current process and does not return. `Command` and
+//! `Child` currently hold descriptors; this module exposes no public spawn
+//! method, so constructing a command does not start a process.
+//!
+//! ## Platform
+//! `native`
+
+module std.process
+
+/// Minimal 0.1 — **IN optional** process control (thin).
+///
+/// | Function | Status |
+/// |----------|--------|
+/// | `exit`   | host-backed (`ar_process_exit` → process terminate) |
+///
+/// Semantics match Go `os.Exit` / Rust `std::process::exit`: the **whole process**
+/// ends (not only `main`'s return path). Prefer `return code` from `main` when
+/// you want the normal Arandu exit path.
+///
+/// Not in the default `arandu new` template.
+
+// Host: process terminate (noreturn).
+extern "C" {
+    func ar_process_exit(code: int): void
+}
+
+/// Terminates the entire process with status `code` and does not return.
+///
+/// The operating system may expose only part of the integer status to a
+/// parent process. Returning from `main` follows the normal exit path.
+public func exit(code: int): void {
+    unsafe {
+        ar_process_exit(code)
+    }
+}
+
+/// Process termination status.
+public struct ExitStatus {
+    /// Exit or status code.
+    code: int
+}
+
+/// Wraps `code` in an `ExitStatus` value without launching a process.
+public func ExitStatus.new(code: int): ExitStatus {
+    return ExitStatus { code: code }
+}
+
+/// Wraps `code` in an `ExitStatus` value without launching a process.
+public func ExitStatus.from(code: int): ExitStatus {
+    return ExitStatus { code: code }
+}
+
+/// Returns `true` if the process terminated successfully (exit code 0).
+public func ExitStatus.success(self: ref ExitStatus): bool {
+    return self.code == 0
+}
+
+/// Returns the exit code of the process.
+public func ExitStatus.code(self: ref ExitStatus): int {
+    return self.code
+}
+
+/// Descriptor holding a program name for a possible child command.
+///
+/// This module currently has no public spawn operation.
+public struct Command {
+    /// Executable path or name.
+    program: str
+}
+
+/// Stores `program` in a `Command` descriptor without starting it.
+///
+/// The descriptor borrows the supplied string and currently has no public
+/// method to add arguments or launch a child.
+public func Command.new(program: str): Command {
+    return Command { program: program }
+}
+
+/// Returns the program to be executed.
+public func Command.program(self: ref Command): str {
+    return self.program
+}
+
+/// Descriptor containing a process identifier.
+///
+/// This type alone does not verify that the process exists or own an OS
+/// process handle.
+public struct Child {
+    /// Host process identifier.
+    pid: int
+}
+
+/// Wraps `pid` in a `Child` descriptor without querying the OS.
+public func Child.fromPid(pid: int): Child {
+    return Child { pid: pid }
+}
+
+/// Returns the process ID of the child process.
+public func Child.id(self: ref Child): int {
+    return self.pid
+}

@@ -1,0 +1,96 @@
+//! Cooperative mutex for a stored value.
+//!
+//! ## Overview
+//!
+//! `AsyncMutex<T>` stores a value and a lock flag for cooperative use.
+//! `get` and `store` do not check the flag, and `tryLock` uses ordinary field
+//! access. This type does not provide cross-thread atomic mutual exclusion.
+//!
+//! ## Safety
+//! `tryLock` returns whether the lock was acquired. Call `unlock` after a
+//! successful acquisition so other cooperative tasks can proceed. The value
+//! accessors do not enforce ownership of the lock. External synchronization
+//! is required if multiple OS threads can access the same instance.
+//!
+//! ## Platform
+//! `native` · `wasm32`
+
+module std.runtime.mutex
+
+/// SL_R — Concurrency: `AsyncMutex<T>`.
+///
+/// Moved out of the former `std.runtime` monolith. The release path wakes a
+/// parked cooperative task by its host waker id (`ar_rt_waker_wake`); the
+/// Waker type itself lives in `std.runtime.waker`.
+
+// Host wake bridge for the release path (same symbol as `std.runtime.waker`).
+extern "C" {
+    /// Host signal for a wake token.
+    func ar_rt_waker_wake(id: int): void
+}
+
+/// Value and lock flag for a cooperative locking protocol.
+///
+/// Methods do not enforce that `get` or `store` is called only by the holder.
+public struct AsyncMutex<T> {
+    /// Value protected by the mutex.
+    value: T
+    /// Whether the mutex is held.
+    is_locked: bool
+    /// Host wake token for a waiting task.
+    waker_id: int
+}
+
+/// Creates a new `AsyncMutex<T>` protecting `initial`.
+public func AsyncMutex.new<T>(initial: T): AsyncMutex<T> {
+    return AsyncMutex<T> {
+        value: initial,
+        is_locked: false,
+        waker_id: 0,
+    }
+}
+
+/// Sets the lock flag and returns `true` if it was previously clear.
+///
+/// Returns `false` immediately if already locked. This ordinary read/write
+/// sequence is not an atomic compare-and-swap across OS threads.
+public func AsyncMutex.tryLock<T>(self: mut ref AsyncMutex<T>): bool {
+    if self.is_locked {
+        return false
+    }
+    self.is_locked = true
+    return true
+}
+
+/// Returns `true` if the mutex is currently locked.
+public func AsyncMutex.isLocked<T>(self: ref AsyncMutex<T>): bool {
+    return self.is_locked
+}
+
+/// Clears the lock flag and wakes the recorded waker ID, if any.
+///
+/// This method does not check whether the caller owns the lock. The waker ID
+/// is then reset to zero.
+public func AsyncMutex.unlock<T>(self: mut ref AsyncMutex<T>): void {
+    self.is_locked = false
+    if self.waker_id != 0 {
+        unsafe {
+            ar_rt_waker_wake(self.waker_id)
+        }
+        self.waker_id = 0
+    }
+}
+
+/// Returns a copy of the stored value without checking the lock flag.
+///
+/// Callers must enforce the cooperative locking protocol themselves.
+public func AsyncMutex.get<T>(self: ref AsyncMutex<T>): T {
+    return self.value
+}
+
+/// Replaces the stored value without checking the lock flag.
+///
+/// Callers must enforce the cooperative locking protocol themselves.
+public func AsyncMutex.store<T>(self: mut ref AsyncMutex<T>, val: T): void {
+    self.value = val
+}

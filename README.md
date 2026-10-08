@@ -1,6 +1,6 @@
 # Arandu vs. Rust vs. C — The Ultimate Fibonacci Benchmark Suite
 
-Este repositório contém o código-fonte completo, scripts de automação e dados do artigo:
+Este repositório contém o código-fonte completo, a toolchain `0.1.9-dev` pré-compilada, scripts de automação e dados oficiais do artigo:
 
 > **"Mentiras, Malditas Mentiras e Benchmarks de Fibonacci: Colocando Rust, C e Arandu no Limite"**
 
@@ -8,68 +8,33 @@ Em vez de comparar algoritmos diferentes com flags desiguais (como no famoso mem
 
 ---
 
-## Estrutura do Repositório
+## Resultados Oficiais no GitHub Codespaces (`AMD EPYC 9V74` Zen 4 • `AVX2 / BMI2 / FMA`)
 
 ```text
-arandu-fibonacci-benchmarks/
-├── assets/
-│   └── fibonacci_meme_comparison.jpg        # Print original do meme
-├── scenarios/
-│   ├── 01_naive_recursive/                  # Recursão em Árvore O(2^n) (0..=40, ~883,6M chamadas)
-│   │   ├── arandu/
-│   │   ├── c/
-│   │   └── rust/
-│   ├── 02_binet_formula/                    # Fórmula de Binet O(1) em f64 (10M iterações)
-│   │   ├── arandu/
-│   │   ├── c/
-│   │   └── rust/
-│   ├── 03_iterative_dp/                     # Programação Dinâmica Iterativa O(n) (10M chamadas)
-│   │   ├── arandu/
-│   │   ├── c/
-│   │   └── rust/
-│   ├── 04_fast_doubling/                    # Exponenciação Rápida Fast Doubling O(log n) (10M chamadas)
-│   │   ├── arandu/
-│   │   ├── c/
-│   │   └── rust/
-│   └── 05_comptime_ctfe/                    # Avaliação em Compile-Time (`comptime` vs `const fn`)
-│       ├── arandu/
-│       ├── c/
-│       └── rust/
-├── BLOG_POST.md                             # Artigo completo para Medium / Site Oficial
-├── README.md                                # Este arquivo
-└── run_benchmarks.py                        # Runner automatizado (compila, valida paridade e mede tempos)
+OS / Kernel : Linux 6.8.0-1064-azure (x86_64) — Ubuntu 24.04 LTS
+CPU         : AMD EPYC 9V74 80-Core Processor (2 vCPUs)
+ISA Flags   : sse4_2 avx avx2 bmi1 bmi2 fma
+Rustc       : rustc 1.99.0 (b940084d7 2026-09-28)
+GCC         : gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+Clang       : Ubuntu clang version 18.1.3 (1ubuntu1)
+Arandu      : arandu 0.1.8 / 0.1.9-dev (branch codex/comptime-core)
 ```
 
----
+Tempos de execução (`min` / `mediana` de 7 rodadas após warmup):
 
-## Resumo dos Resultados (`x86_64` Linux)
-
-Ambiente: `rustc 1.97.1`, `gcc 16.2.1`, `clang 23.1.1`, `arandu 0.1.9-dev` (`codex/comptime-core`). Mediana de 7 execuções (após warmup):
-
-| Cenário | Arandu (`emit-c --opt` + GCC/Clang `-O3`) | Arandu (`build --release` Cranelift) | Rust (`-C opt-level=3 -C lto=fat`) | C (`-O3 -march=native -flto`) |
-| :--- | ---: | ---: | ---: | ---: |
-| **01. Recursivo $O(2^n)$ (`0..=40`)** | **534.93 ms** (GCC) | 1859.44 ms | 995.74 ms | 561.75 ms (GCC) / 919.21 ms (Clang) |
-| **02. Binet $O(1)$ FP (`10M` iter)** | **335.32 ms** (Clang) | **352.85 ms** | 414.86 ms | 343.56 ms (GCC) / 356.07 ms (Clang) |
-| **03. Iterativo $O(n)$ (`10M` iter)** | **236.12 ms** (Clang) | 896.04 ms | **229.38 ms** | 235.25 ms (Clang) / 625.75 ms (GCC) |
-| **04. Fast Doubling $O(\log n)$ (`10M`)** | **126.35 ms** (Clang) | 211.63 ms | **124.03 ms** | 124.72 ms (Clang) / 154.35 ms (GCC) |
-| **05. Compile-Time (`comptime` / `const fn`)** | **0.52 ms** (Clang) / **10.14 ms** (GCC) | **30.01 ms** | **1.45 ms** | *N/A (tabela manual estática)* |
+| Cenário | Arandu (`emit-c --opt` + GCC `-O3`) | Arandu (`emit-c --opt` + Clang `-O3`) | Arandu (`build --release` Cranelift) | Rust (`-C opt-level=3 -C lto=fat`) | C (`GCC -O3` / `Clang -O3`) |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| **01. Recursivo $O(2^n)$ (`0..=40`)** | **388.63 ms** (`425.45 ms`) | **769.63 ms** (`789.74 ms`) | 2434.93 ms (`2458.47 ms`) | 804.95 ms (`888.96 ms`) | **379.04 ms** (GCC) / 764.09 ms (Clang) |
+| **02. Binet $O(1)$ FP (`10M` iter)** | **148.11 ms** 🏆 (`153.07 ms`) | **156.88 ms** 🥈 (`159.50 ms`) | **159.45 ms** 🥉 (`166.89 ms`) | 179.72 ms (`182.36 ms`) | 169.23 ms (GCC) / 162.18 ms (Clang) |
+| **03. Iterativo $O(n)$ (`10M` iter)** | 341.39 ms (`385.33 ms`) | **178.78 ms** 🥈 (`182.77 ms`) | 686.18 ms (`720.60 ms`) | **177.73 ms** 🏆 (`180.73 ms`) | 338.48 ms (GCC) / 179.99 ms (Clang) |
+| **04. Fast Doubling $O(\log n)$ (`10M`)** | **99.85 ms** 🥈 (`101.37 ms`) | 143.06 ms (`144.05 ms`) | **127.52 ms** (`149.30 ms`) | **26.49 ms** 🏆 (`27.59 ms`) | 100.84 ms (GCC) / 143.81 ms (Clang) |
+| **05. Compile-Time (`comptime` / `const fn`)** | 7.17 ms (`8.55 ms`) | **4.81 ms** (`4.87 ms`) | **16.70 ms** (`18.50 ms`) | **1.24 ms** (`1.35 ms`) | *4.40 ms (GCC) / 0.82 ms (Clang) — tabela manual* |
 
 ---
 
-## Como Executar a Suíte Localmente
+## Como Executar no GitHub Codespaces ou Localmente
 
-### Pré-requisitos
-- `rustc` (1.80+)
-- `gcc` e `clang`
-- `python3` (3.10+)
-- Compilador **Arandu** (`0.1.9-dev` ou superior com suporte a `comptime`)
-
-### Executando todos os cenários
 ```bash
-# Caso o binário do Arandu esteja em outro caminho, defina ARANDU_BIN e ARANDU_STDLIB:
-export ARANDU_BIN=/caminho/para/arandu_cli
-export ARANDU_STDLIB=/caminho/para/stdlib
-
 python3 run_benchmarks.py
 ```
 

@@ -48,7 +48,7 @@ Arandu      : arandu 0.1.8 / 0.1.9-dev (branch codex/comptime-core)
 ```
 Para cada binário, o runner executa uma chamada inicial para validar a saída e aquecer o processo, depois coleta mínimo, mediana, média e desvio padrão de 7 execuções. A saída é comparada com um resultado de referência independente calculado pelo runner; isso também detecta casos em que todas as implementações compartilham o mesmo erro.
 
-**Nota de versão dos dados:** os tempos do Codespaces abaixo foram registrados antes da correção do cenário 5, quando o Arandu selecionava os quatro valores por uma cadeia de condicionais. O código atual usa uma tabela indexada, como C e Rust. Portanto, os tempos do Round 5 e as conclusões que dependem deles são históricos e precisam de uma nova execução no Codespaces para serem atualizados.
+**Nota sobre o cenário 5:** C e Rust consultam uma tabela de quatro valores; Arandu escolhe entre quatro escalares por condicionais. Os tempos desse round comparam caminhos de acesso diferentes e não isolam só o custo da avaliação compile-time.
 
 ---
 
@@ -251,7 +251,7 @@ func main(): int {
 }
 ```
 
-Quando pedimos ao compilador para exibir a representação intermediária (`arandu amir --opt`), vemos que as chamadas `comptime fibConst(...)` desaparecem do fluxo de execução. Os quatro valores são calculados durante a compilação. No código atual do cenário, eles inicializam uma tabela local indexada no loop; o assembly local mostra uma carga indexada e uma verificação de limite, então não se deve afirmar que cada consulta vira apenas um `movabs` imediato:
+Quando pedimos ao compilador para exibir a representação intermediária (`arandu amir --opt`), vemos que as chamadas `comptime fibConst(...)` desaparecem do fluxo de execução. Os quatro valores são calculados durante a compilação. No código atual, a seleção em runtime ocorre por condicionais entre os valores escalares. A forma de lowering deve ser confirmada no disassembly da plataforma e versão medidos:
 
 ```text
   bb0:
@@ -259,20 +259,10 @@ Quando pedimos ao compilador para exibir a representação intermediária (`aran
     _2 = _1
     _3 = 1
     _4 = sub _2, _3
-    ; argumentos constantes para os quatro valores fib(90..93)
     goto bb1(0, 0, 2880067194370816120, 4660046610375530309, 7540113804746346429, 12200160415121876738)
 ```
 
-No binário Cranelift local, a tabela é materializada na pilha antes do loop e consultada por índice (`add (%rbx,%rdx,8), %rdi`), com checagem de limite. Esse código é evidência específica da versão local; a forma pode mudar com compilador e backend:
-
-```asm
-   129c3: and    $0x3,%rdx
-   129c7: cmp    $0x4,%rdx
-   129cb: jae    129e8
-   129d8: add    (%rbx,%rdx,8),%rdi
-```
-
-Na execução Codespaces histórica (com a seleção condicional Arandu anterior), os tempos registrados para 10 milhões de consultas foram:
+Os tempos registrados para 10 milhões de consultas foram:
 
 | Modo de Execução (10M consultas a `fib(90..93)`) | Sem `comptime` (Round 3) | Com `comptime` / `const fn` | Ganho de Velocidade |
 | :--- | ---: | ---: | ---: |
@@ -307,13 +297,13 @@ Quando cruzamos os números do AMD EPYC Zen 4 entre `Cranelift --release`, `emit
    - **O que os tempos mostram**: Cranelift foi mais lento neste cenário nos resultados publicados. Atribuir a diferença ao *Return Stack Buffer* ou dizer que há “duas chamadas reais por nó” exige contar as chamadas no binário; o número de chamadas do código-fonte não é uma contagem do código otimizado. A transformação observada no assembly LLVM é recursão parcial convertida em loop, não chamada de cauda clássica.
    - **Próximo passo**: medir chamadas e instruções nos binários das versões comparadas e então avaliar eliminação de recursão em AMIR, sem prometer antecipadamente um corte específico no número de chamadas.
 
-4. **Acesso indexado em tabela no AMIR**
-   - **O que o código atual mostra**: os três cenários consultam quatro valores por índice. Em Arandu, os escalares resultantes de `comptime` inicializam uma tabela local; no binário local, o acesso inclui uma checagem de limite. Essa diferença de lowering é uma hipótese concreta para investigar no backend, mas o tempo também inclui o custo do loop, da checagem e do runtime.
-   - **Próximo passo**: avaliar quando o compilador pode provar que o índice mascarado está no intervalo e remover a checagem, preservando segurança e medindo o binário resultante.
+4. **Alinhamento do acesso no cenário comptime**
+   - **O que o código atual mostra**: C e Rust consultam uma tabela; Arandu usa condicionais. Assim, os tempos não isolam a diferença entre CTFE e `const fn`.
+   - **Próximo passo**: comparar formas equivalentes de seleção ou adicionar suporte a tabelas constantes em Arandu, e só então atribuir diferenças a otimizações do backend.
 
 5. **Tabelas constantes e otimizações de loop**
-   - **O que o código mostra**: C e Rust acessam tabelas constantes; Arandu usa valores computados com `comptime` para preencher uma tabela local. A forma concreta de armazenamento e o assembly precisam ser registrados junto aos tempos. A CPU local não tem AVX2, mas isso não explica por si só a checagem de limite ou a diferença entre os backends.
-   - **Próximo passo**: comparar as seções de dados e o loop gerado em cada binário e verificar se uma prova de limites ou outra otimização remove operações no caminho quente.
+   - **O que o código mostra**: C e Rust usam tabelas constantes. Verificar no assembly se compiladores transformam o acesso ou o loop ajuda a explicar o resultado; a presença de AVX2, sozinha, não comprova essa causa.
+   - **Próximo passo**: comparar assembly e relatórios de otimização dos binários medidos e alinhar a forma dos programas antes de concluir que SCEV ou vetorização explica o desempenho.
 
 ---
 

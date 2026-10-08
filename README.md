@@ -4,7 +4,7 @@ Este repositório contém os códigos-fonte dos cenários, a toolchain Arandu `0
 
 > **"Mentiras, Malditas Mentiras e Benchmarks de Fibonacci: Colocando Rust, C e Arandu no Limite"**
 
-Em vez de comparar algoritmos diferentes com flags desiguais (como no famoso meme que coloca `cargo run` em modo Debug recursivo $O(2^n)$ contra `gcc -O3` usando a Fórmula de Binet $O(1)$), esta suíte compara **Rust (`rustc`)**, **C (`gcc` e `clang`)** e **Arandu (`Cranelift` e `C-Backend`)** em cinco cenários. Os algoritmos coincidem dentro dos cenários 1–4; o cenário 5 compara avaliação compile-time e consultas a quatro valores, mas suas formas de armazenamento/acesso devem ser consideradas ao interpretar o desempenho. As flags nativas incluem `-O3 -march=native -flto` para Rust/C e os caminhos Arandu documentados.
+Em vez de comparar algoritmos diferentes com flags desiguais (como no famoso meme que coloca `cargo run` em modo Debug recursivo $O(2^n)$ contra `gcc -O3` usando a Fórmula de Binet $O(1)$), esta suíte compara **Rust (`rustc`)**, **C (`gcc` e `clang`)** e **Arandu (`Cranelift` e `C-Backend`)** em cinco cenários. Os algoritmos coincidem dentro dos cenários 1–4. No cenário 5, C e Rust consultam uma tabela e Arandu seleciona entre quatro valores com condicionais; esse round também compara formas diferentes de acesso. As flags nativas incluem `-O3 -march=native -flto` para Rust/C e os caminhos Arandu documentados.
 
 ---
 
@@ -55,45 +55,45 @@ OS          : Linux 7.2.7-1-cachyos x86_64
 Rustc       : 1.98.1 (LLVM 22.1.8)
 GCC         : 16.2.1
 Clang       : 23.1.1
-Arandu      : workspace Arandu-Lang/target/debug/arandu_cli (0.1.8, fonte local)
-Stdlib      : ../Arandu-Lang/stdlib
+Arandu      : toolchain/bin/arandu (0.1.8 empacotado)
+Stdlib      : toolchain/stdlib
 Medição     : 1 chamada de validação/aquecimento + 7 execuções; min / mediana
 ```
 
 | Cenário | Implementação | Min (ms) | Mediana (ms) |
 | :--- | :--- | ---: | ---: |
-| Recursivo | Rust | 992.71 | 998.07 |
-|  | C / GCC | 560.16 | 562.51 |
-|  | C / Clang | 917.66 | 921.34 |
-|  | Arandu / Cranelift | 1858.55 | 1861.79 |
-|  | Arandu C / GCC | 534.97 | 540.86 |
-|  | Arandu C / Clang | 918.55 | 920.05 |
-| Binet | Rust | 411.74 | 415.58 |
-|  | C / GCC | 342.81 | 343.66 |
-|  | C / Clang | 355.23 | 357.16 |
-|  | Arandu / Cranelift | 350.70 | 352.44 |
-|  | Arandu C / GCC | 335.84 | 340.52 |
-|  | Arandu C / Clang | 331.66 | 333.77 |
-| Iterativo | Rust | 228.66 | 230.02 |
-|  | C / GCC | 620.77 | 621.24 |
-|  | C / Clang | 236.13 | 237.67 |
-|  | Arandu / Cranelift | 896.72 | 898.15 |
-|  | Arandu C / GCC | 625.29 | 627.34 |
-|  | Arandu C / Clang | 235.14 | 235.59 |
-| Fast Doubling | Rust | 122.48 | 123.13 |
-|  | C / GCC | 155.60 | 156.44 |
-|  | C / Clang | 123.81 | 125.26 |
-|  | Arandu / Cranelift | 205.47 | 207.56 |
-|  | Arandu C / GCC | 154.02 | 156.33 |
-|  | Arandu C / Clang | 124.82 | 126.43 |
-| Comptime / const | Rust | 1.39 | 1.45 |
-|  | C / GCC | 6.66 | 6.76 |
-|  | C / Clang | 0.49 | 0.52 |
-|  | Arandu / Cranelift | 9.83 | 10.17 |
-|  | Arandu C / GCC | 9.88 | 10.91 |
-|  | Arandu C / Clang | 4.89 | 4.92 |
+| Recursivo | Rust | 991.83 | 994.48 |
+|  | C / GCC | 560.45 | 562.17 |
+|  | C / Clang | 918.02 | 920.94 |
+|  | Arandu / Cranelift | 1857.10 | 1860.04 |
+|  | Arandu C / GCC | 534.27 | 536.15 |
+|  | Arandu C / Clang | 918.60 | 919.16 |
+| Binet | Rust | 411.42 | 413.43 |
+|  | C / GCC | 341.49 | 344.88 |
+|  | C / Clang | 355.50 | 358.32 |
+|  | Arandu / Cranelift | 350.74 | 352.85 |
+|  | Arandu C / GCC | 335.63 | 337.30 |
+|  | Arandu C / Clang | 330.58 | 333.13 |
+| Iterativo | Rust | 228.63 | 230.75 |
+|  | C / GCC | 621.36 | 623.96 |
+|  | C / Clang | 235.05 | 235.77 |
+|  | Arandu / Cranelift | 896.52 | 898.34 |
+|  | Arandu C / GCC | 624.91 | 626.88 |
+|  | Arandu C / Clang | 235.32 | 237.52 |
+| Fast Doubling | Rust | 122.64 | 124.57 |
+|  | C / GCC | 155.32 | 157.27 |
+|  | C / Clang | 124.07 | 125.49 |
+|  | Arandu / Cranelift | 208.59 | 210.05 |
+|  | Arandu C / GCC | 154.00 | 155.03 |
+|  | Arandu C / Clang | 125.34 | 126.44 |
+| Comptime / const | Rust | 1.41 | 1.53 |
+|  | C / GCC | 6.63 | 6.72 |
+|  | C / Clang | 0.47 | 0.50 |
+|  | Arandu / Cranelift | 29.89 | 31.43 |
+|  | Arandu C / GCC | 9.87 | 10.14 |
+|  | Arandu C / Clang | 0.48 | 0.48 |
 
-As saídas dos seis binários em cada cenário coincidiram com referências independentes. No cenário 5, Arandu usa agora a mesma forma geral de acesso por tabela que C e Rust; esse resultado substitui a execução anterior com seleção condicional. O caso Binet percorre `n = 0..70`, intervalo em que os valores de Fibonacci cabem em `u64`; nesta execução, todos os caminhos produziram o checksum `14864523082006142394`. Também comparei cada expoente individualmente: **71 de 71 resultados** foram idênticos entre Cranelift do workspace, `pow` em C e `powf` em Rust. O binário Cranelift chama `pow@GLIBC_2.29` e a conversão `f64 → u64` recebe valores dentro do intervalo representável.
+As saídas dos seis binários em cada cenário coincidiram com referências independentes. O caso Binet percorre `n = 0..70`, intervalo em que os valores de Fibonacci cabem em `u64`; nesta execução, todos os caminhos produziram o checksum `14864523082006142394`. Também comparei cada expoente individualmente: **71 de 71 resultados** foram idênticos entre Cranelift do workspace, `pow` em C e `powf` em Rust. O binário Cranelift chama `pow@GLIBC_2.29` e a conversão `f64 → u64` recebe valores dentro do intervalo representável.
 
 A divergência observada na tentativa reduzida veio de misturar a saída de C/Rust compilados com 100 mil iterações e um binário Cranelift antigo de 10 milhões. O runner agora remove o diretório de build do Arandu antes de compilar, exige um único binário recém-gerado e compara a saída com uma referência independente.
 

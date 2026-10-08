@@ -15,7 +15,7 @@ arandu-fibonacci-benchmarks/
 ├── assets/
 │   └── fibonacci_meme_comparison.jpg        # Original viral meme screenshot
 ├── scenarios/
-│   ├── 01_naive_recursive/                  # O(2^n) Tree Recursion (0..=40, ~883.6M calls)
+│   ├── 01_naive_recursive/                  # O(2^n) Tree Recursion (0..=40, ~866.99M calls)
 │   │   ├── arandu/
 │   │   ├── c/
 │   │   └── rust/

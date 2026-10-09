@@ -1,16 +1,16 @@
 # Lies, Damned Lies, and Fibonacci Benchmarks: Pushing Rust, C, and Arandu to the Limit
 
-**Wait a second—why are we still benchmarking programming languages with $O(2^n)$ recursive Fibonacci in 2026?**
+**Wait a second—why are we still benchmarking programming languages with O(2ⁿ) recursive Fibonacci in 2026?**
 
 Every few months, a viral screenshot makes the rounds on developer social media. You have almost certainly seen this one:
 
 ![Viral benchmark meme comparing Rust and C with naive recursive Fibonacci](assets/fibonacci_meme_comparison.jpg)
 
-On the left, a developer writes an $O(2^n)$ naive recursive Fibonacci loop (`0..=40`) in Rust, forgets `--release`, and declares: *"Rust is slow—it took 2.9 seconds!"* On the right, another replies with a C implementation using an $O(1)$ floating-point closed-form approximation (Binet's formula) and boasts: *"C took 0.14 seconds! What took you so long?"*
+On the left, a developer writes an O(2ⁿ) naive recursive Fibonacci loop (`0..=40`) in Rust, forgets `--release`, and declares: *"Rust is slow—it took 2.9 seconds!"* On the right, another replies with a C implementation using an O(1) floating-point closed-form approximation (Binet's formula) and boasts: *"C took 0.14 seconds! What took you so long?"*
 
 As compiler engineers, looking at that screenshot hurts twice:
 1. **The Rust measurement** ran a debug binary (`cargo run` without `--release`) executing **866,988,831 recursive function calls**.
-2. **The C measurement** didn't just change the language—it quietly swapped an exponential $O(2^n)$ integer tree traversal for an $O(1)$ floating-point approximation (`pow` and `sqrt`), and timed the entire process mostly waiting on `printf` terminal I/O!
+2. **The C measurement** didn't just change the language—it quietly swapped an exponential O(2ⁿ) integer tree traversal for an O(1) floating-point approximation (`pow` and `sqrt`), and timed the entire process mostly waiting on `printf` terminal I/O!
 
 Instead of just laughing at the meme, we asked a serious engineering question: **What happens if we turn this viral apples-to-oranges comparison into a rigorous, reproducible systems compiler benchmark?**
 
@@ -21,7 +21,7 @@ To find out exactly how Arandu stacks up against industry titans **Rust (`rustc`
 What we uncovered wasn't just a victory lap—it was an x-ray of modern code generation. Specifically, benchmarking Arandu against LLVM, GCC, and Clang exposed **four concrete compiler optimization opportunities** in Arandu's Mid-level Intermediate Representation (**AMIR**) and native backend:
 1. **Cost-Guided Interprocedural Function Inlining** (to unlock cross-call constant folding and loop vectorization).
 2. **Loop Unrolling, Vectorization, and Loop-Invariant Code Motion (LICM)** (to match LLVM's AVX2 SIMD throughput on tight arithmetic loops).
-3. **Tail-Recursion Elimination and Accumulator Transformation** (to turn $O(2^n)$ call trees into linear $O(n)$ loops).
+3. **Tail-Recursion Elimination and Accumulator Transformation** (to turn O(2ⁿ) call trees into linear O(n) loops).
 4. **If-Conversion (`Select` / `cmov` / SIMD blend lowering)** (to eliminate branch misprediction penalties inside data-dependent loops).
 
 > [!IMPORTANT]
@@ -35,7 +35,7 @@ What we uncovered wasn't just a victory lap—it was an x-ray of modern code gen
 
 To make a benchmark meaningful to systems engineers, every compiler must play by the exact same rules:
 
-1. **Same Algorithm per Round**: We never pit $O(2^n)$ recursion in Language A against $O(1)$ math in Language B. Every language implements the exact same algorithm in each round.
+1. **Same Algorithm per Round**: We never pit O(2ⁿ) recursion in Language A against O(1) math in Language B. Every language implements the exact same algorithm in each round.
 2. **Zero I/O Inside the Timed Window**: Terminal `printf` / `println` latency measures OS kernel pipe buffering, not CPU code generation. All benchmarks run **10,000,000 iterations** (except Round 1, which runs the classic `0..=40` tree recursion), accumulate results into a 64-bit checksum (`out`), and print the checksum **only once at the very end** to prove the computation was not dead-code-eliminated.
 3. **Controlled Anti-Constant-Folding Barriers**: In Rounds 2, 3, and 4, if the compiler knows at compile time that we are asking for `fib(90)`, LLVM or GCC could constant-fold the entire loop into a single integer load. To measure actual runtime execution in those rounds, we feed a runtime-opaque seed (`seed = argc - 1`, which evaluates to `0` at runtime) into the loop index (`90 + ((iter + seed) & 3)`). Then, in **Round 5**, we deliberately remove the barrier to test **Compile-Time Function Evaluation (`comptime` vs. `const fn`)**.
 4. **Verifying `GenRef` Overhead vs. Heap Allocations**: For every Arandu benchmark, we compile with `--genref-report --no-generational-fallback`. Across all five programs, the compiler reports `promotions=0 checks=0`. It is important to be precise about what this flag proves: `promotions=0 checks=0` guarantees that **zero local values escaped to generational-reference slots and zero runtime generation checks were emitted**. Combined with inspecting the emitted AMIR and assembly—which show only scalar registers inside the hot functions—we confirm that the benchmarked loops perform zero heap allocations (with standard string buffer allocation occurring only once at the end of `main` inside `io.println`).
@@ -69,11 +69,11 @@ Before examining each round in detail, the chart below summarizes the **median e
 
 ---
 
-## Round 1: The Meme Rematch — Naive Tree Recursion $O(2^n)$
+## Round 1: The Meme Rematch — Naive Tree Recursion O(2ⁿ)
 
-Let's start where the meme began: computing `fib(n) = fib(n - 1) + fib(n - 2)` from $n = 0$ to $n = 40$.
+Let's start where the meme began: computing `fib(n) = fib(n - 1) + fib(n - 2)` from `n = 0` to `n = 40`.
 
-For standard binary recursion with base cases $n \le 1$, computing a single term $F_n$ invokes `fib` exactly $2 F_{n+1} - 1$ times. Summing across the entire loop $\sum_{n=0}^{40} (2 F_{n+1} - 1)$ produces **866,988,831 function calls** (`fib(40)` alone accounts for `331,160,281` calls). This benchmark doesn't test arithmetic throughput; it tests how aggressively a compiler can **unfold, inline, and convert recursive call trees into loops**.
+For standard binary recursion with base cases `n ≤ 1`, computing a single term Fₙ invokes `fib` exactly **2Fₙ₊₁ − 1** times. Summing across the entire loop **Σₙ₌₀⁴⁰ (2Fₙ₊₁ − 1)** produces **866,988,831 function calls** (`fib(40)` alone accounts for `331,160,281` calls). This benchmark doesn't test arithmetic throughput; it tests how aggressively a compiler can **unfold, inline, and convert recursive call trees into loops**.
 
 ```arandu
 // Arandu — 01_naive_recursive/arandu/src/main.aru
@@ -126,14 +126,16 @@ funcao fib(n: u64) -> u64 {
 
 ---
 
-## Round 2: Binet's Closed-Form Formula $O(1)$ (Floating-Point)
+## Round 2: Binet's Closed-Form Formula O(1) (Floating-Point)
 
-Now let's test the algorithm that the C code in the meme actually used: **Binet's Formula**, which approximates $F_n$ using IEEE-754 64-bit floating-point arithmetic (`f64` / `double`):
+Now let's test the algorithm that the C code in the meme actually used: **Binet's Formula**, which approximates Fₙ using IEEE-754 64-bit floating-point arithmetic (`f64` / `double`):
 
 $$F_n \approx \text{round}\left(\frac{\varphi^n}{\sqrt{5}}\right), \quad \text{where } \varphi = \frac{1 + \sqrt{5}}{2}$$
 
+> **Medium-friendly notation**: `Fₙ ≈ round(φⁿ / √5), where φ = (1 + √5) / 2`
+
 > [!WARNING]
-> **Mathematical Caveat**: While Binet's formula runs in $O(1)$ time, IEEE-754 `f64` only has 53 bits of significand precision. For $n > 70$, Binet's formula **cannot represent exact Fibonacci integers**! Still, running it **10,000,000 times** in a loop is a great test of floating-point instruction scheduling and `libm` (`pow` / `round`) integration.
+> **Mathematical Caveat**: While Binet's formula runs in O(1) time, IEEE-754 `f64` only has 53 bits of significand precision. For `n > 70`, Binet's formula **cannot represent exact Fibonacci integers**! Still, running it **10,000,000 times** in a loop is a great test of floating-point instruction scheduling and `libm` (`pow` / `round`) integration.
 
 ### Round 2 Results (10,000,000 iterations, Checksum: `14864523082006142394`)
 
@@ -152,9 +154,9 @@ Once we remove the meme's `printf` bottleneck and execute 10 million floating-po
 
 ---
 
-## Round 3: Exact Iterative Dynamic Programming $O(n)$
+## Round 3: Exact Iterative Dynamic Programming O(n)
 
-If you actually need exact 64-bit integer Fibonacci numbers in production without wasting memory, you don't use $O(2^n)$ recursion or imprecise floats—you write an $O(n)$ iterative loop with two registers (`a` and `b`):
+If you actually need exact 64-bit integer Fibonacci numbers in production without wasting memory, you don't use O(2ⁿ) recursion or imprecise floats—you write an O(n) iterative loop with two registers (`a` and `b`):
 
 ```arandu
 // Arandu — 03_iterative_dp/arandu/src/main.aru
@@ -166,7 +168,7 @@ funcao fibIter(n: u64) -> u64 {
     var b: u64 = 1u64
     var i: u64 = 2u64
     enquanto i <= n {
-         imut proximo: u64 = a + b
+        imut proximo: u64 = a + b
         a = b
         b = proximo
         i = i + 1u64
@@ -198,15 +200,11 @@ Look closely at the table above. Notice how the results split into three distinc
 
 ---
 
-## Round 4: Fast Doubling $O(\log n)$ — The Ultimate Test of Inlining & SIMD
+## Round 4: Fast Doubling O(log n) — The Ultimate Test of Inlining & SIMD
 
-For large $n$, even $O(n)$ iteration is suboptimal. Using the matrix exponentiation identity
-
-$$\begin{pmatrix} F_{2k+1} & F_{2k} \\ F_{2k} & F_{2k-1} \end{pmatrix} = \begin{pmatrix} 1 & 1 \\ 1 & 0 \end{pmatrix}^{2k}$$
-
-we obtain the **Fast Doubling** identities:
-- $F_{2k} = F_k \cdot (2 F_{k+1} - F_k)$
-- $F_{2k+1} = F_k^2 + F_{k+1}^2$
+For large `n`, even O(n) iteration is suboptimal. Using the matrix exponentiation identity `[F₂ₖ₊₁, F₂ₖ; F₂ₖ, F₂ₖ₋₁] = [1, 1; 1, 0]²ᵏ`, we obtain the **Fast Doubling** identities:
+- `F₂ₖ = Fₖ · (2Fₖ₊₁ − Fₖ)`
+- `F₂ₖ₊₁ = Fₖ² + Fₖ₊₁²`
 
 This computes `fib(93)` in just **7 loop iterations** instead of 93! We ran `fibFast(90..93)` **10,000,000 times**.
 
@@ -335,11 +333,11 @@ In Round 4 (Fast Doubling), the inner loop contains a data-dependent branch (`se
 
 | Benchmark Workload | Complexity | Rust (`-O3 lto`) | C (GCC `-O3`) | C (Clang `-O3`) | Arandu (C+GCC) | Arandu (C+Clang) | Arandu (Cranelift) |
 | :--- | :---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| **1. Naive Recursive (`0..=40`)** | $O(2^n)$ | 862.33 ms | **383.73 ms** | 771.87 ms | **405.16 ms** | 780.55 ms | 2,443.88 ms |
-| **2. Binet Formula (`10M` iter)** | $O(1)$ FP | 194.37 ms | 166.58 ms | 171.06 ms | **151.24 ms** | **159.95 ms** | **160.73 ms** |
-| **3. Iterative DP (`10M` iter)** | $O(n)$ | 183.19 ms | 355.02 ms | **180.47 ms** | 351.31 ms | **197.28 ms** | 665.50 ms |
-| **4. Fast Doubling (`10M` iter)** | $O(\log n)$ | **27.49 ms** | 103.50 ms | 144.33 ms | **100.39 ms** | 146.97 ms | **132.43 ms** |
-| **5. `comptime` / `const fn` (`10M`)** | $O(1)$ LUT | 5.10 ms | 4.85 ms | **4.81 ms** | **6.45 ms** | **6.27 ms** | 13.45 ms |
+| **1. Naive Recursive (`0..=40`)** | O(2ⁿ) | 862.33 ms | **383.73 ms** | 771.87 ms | **405.16 ms** | 780.55 ms | 2,443.88 ms |
+| **2. Binet Formula (`10M` iter)** | O(1) FP | 194.37 ms | 166.58 ms | 171.06 ms | **151.24 ms** | **159.95 ms** | **160.73 ms** |
+| **3. Iterative DP (`10M` iter)** | O(n) | 183.19 ms | 355.02 ms | **180.47 ms** | 351.31 ms | **197.28 ms** | 665.50 ms |
+| **4. Fast Doubling (`10M` iter)** | O(log n) | **27.49 ms** | 103.50 ms | 144.33 ms | **100.39 ms** | 146.97 ms | **132.43 ms** |
+| **5. `comptime` / `const fn` (`10M`)** | O(1) LUT | 5.10 ms | 4.85 ms | **4.81 ms** | **6.45 ms** | **6.27 ms** | 13.45 ms |
 
 ---
 
@@ -347,7 +345,7 @@ In Round 4 (Fast Doubling), the inner loop contains a data-dependent branch (`se
 
 The next time someone posts a screenshot claiming Language X is 20x slower than Language Y using a naive recursive Fibonacci loop, send them this article—or better yet, ask them to check three orthogonal dimensions of software performance:
 
-1. **Algorithmic Complexity**: Moving from $O(2^n)$ tree recursion (`~400–2,440 ms` for just 41 numbers) to $O(\log n)$ Fast Doubling (`~27–146 ms` for **10,000,000** numbers) changes performance by **five orders of magnitude**—more than any compiler flag ever will.
+1. **Algorithmic Complexity**: Moving from O(2ⁿ) tree recursion (`~400–2,440 ms` for just 41 numbers) to O(log n) Fast Doubling (`~27–146 ms` for **10,000,000** numbers) changes performance by **five orders of magnitude**—more than any compiler flag ever will.
 2. **Compile-Time Evaluation (`comptime` / `const fn`)**: Moving invariant work from runtime to compile time drops 10 million evaluations to **~5–6 milliseconds**, turning CPU-bound math into L1 cache lookups.
 3. **Low-Level Code Generation**: Once the algorithm and compile-time boundaries are fixed, the remaining 2x–4x gaps come down to concrete compiler engineering—interprocedural inlining, loop unrolling, branchless `cmov`/`vblendvpd` selection, and AVX2 SIMD vectorization.
 

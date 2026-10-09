@@ -76,12 +76,12 @@ Let's start where the meme began: computing `fib(n) = fib(n - 1) + fib(n - 2)` f
 For standard binary recursion with base cases `n ≤ 1`, computing a single term Fₙ invokes `fib` exactly **2Fₙ₊₁ − 1** times. Summing across the entire loop **Σₙ₌₀⁴⁰ (2Fₙ₊₁ − 1)** produces **866,988,831 function calls** (`fib(40)` alone accounts for `331,160,281` calls). This benchmark doesn't test arithmetic throughput; it tests how aggressively a compiler can **unfold, inline, and convert recursive call trees into loops**.
 
 ```arandu
-// Arandu — 01_naive_recursive/arandu/src/main.aru
-funcao fib(n: u64) -> u64 {
-    se n <= 1u64 {
-        retorne n
+// Arandu — scenarios/01_naive_recursive/arandu/src/main.aru
+func fibonacci(n: u64): u64 {
+    if n <= 1 {
+        return n
     }
-    retorne fib(n - 1u64) + fib(n - 2u64)
+    return fibonacci(n - 1) + fibonacci(n - 2)
 }
 ```
 
@@ -157,21 +157,18 @@ Once we remove the meme's `printf` bottleneck and execute 10 million floating-po
 If you actually need exact 64-bit integer Fibonacci numbers in production without wasting memory, you don't use O(2ⁿ) recursion or imprecise floats—you write an O(n) iterative loop with two registers (`a` and `b`):
 
 ```arandu
-// Arandu — 03_iterative_dp/arandu/src/main.aru
-funcao fibIter(n: u64) -> u64 {
-    se n <= 1u64 {
-        retorne n
+// Arandu — scenarios/03_iterative_dp/arandu/src/main.aru
+func fibIter(n: u64): u64 {
+    let mut a: u64 = 0
+    let mut b: u64 = 1
+    let mut i: u64 = 0
+    while i < n {
+        let tmp = a + b
+        set a = b
+        set b = tmp
+        set i = i + 1
     }
-    var a: u64 = 0u64
-    var b: u64 = 1u64
-    var i: u64 = 2u64
-    enquanto i <= n {
-        imut proximo: u64 = a + b
-        a = b
-        b = proximo
-        i = i + 1u64
-    }
-    retorne b
+    return a
 }
 ```
 
@@ -205,6 +202,34 @@ For large `n`, even O(n) iteration is suboptimal. Using the matrix exponentiatio
 - `F₂ₖ₊₁ = Fₖ² + Fₖ₊₁²`
 
 This computes `fib(93)` in just **7 loop iterations** instead of 93! We ran `fibFast(90..93)` **10,000,000 times**.
+
+```arandu
+// Arandu — scenarios/04_fast_doubling/arandu/src/main.aru
+func fibFast(n: u64): u64 {
+    if n == 0 {
+        return 0
+    }
+    let mut a: u64 = 0
+    let mut b: u64 = 1
+    let mut bit: u64 = 64
+    while bit > n {
+        set bit = bit >> 1
+    }
+    while bit > 0 {
+        let d = a * ((b << 1) - a)
+        let e = a * a + b * b
+        set a = d
+        set b = e
+        if (n & bit) != 0 {
+            let c = a + b
+            set a = b
+            set b = c
+        }
+        set bit = bit >> 1
+    }
+    return a
+}
+```
 
 ### Round 4 Results (10,000,000 iterations, Checksum: `18360354870236805504`)
 
@@ -243,7 +268,7 @@ Two findings jump off the page here:
        vblendvpd   xmm6, xmm10, xmm8, xmm11 ; Branchless (n & bit != 0) select!
    ```
 
-   Why didn't Arandu+Clang or C+Clang trigger that same AVX2 vectorization? In C and Arandu, the loop starts with `uint64_t bit = 1ULL << 63;` (64 iterations) rather than specialization on the leading zeros of `n`, keeping the loop count too large for LLVM's full-unroll-and-SLP-vectorize threshold unless `fib_fast` is specialized on the bit-width of `n`.
+   Why didn't Arandu+Clang or C+Clang trigger that same AVX2 vectorization? In C and Arandu, without loop unrolling and SLP vectorization passes in AMIR, the loop executes scalar iterations with data-dependent branches.
 
 ---
 
@@ -254,26 +279,29 @@ There is an old saying in systems programming: **The fastest code is the code th
 If the inputs (`90, 91, 92, 93`) are known at compile time, why compute Fibonacci at runtime at all? Both **Rust** (`const fn` + `const TABLE`) and **Arandu** (native `comptime` expressions evaluated directly by the compiler's CTFE engine) allow you to run ordinary language functions *during compilation* and bake the resulting lookup table directly into the binary's read-only data segment:
 
 ```arandu
-// Arandu — 05_comptime_ctfe/arandu/src/main.aru
-funcao fibConst(n: u64) -> u64 {
-    var a: u64 = 0u64
-    var b: u64 = 1u64
-    var i: u64 = 0u64
-    enquanto i < n {
-        imut temp: u64 = a + b
-        a = b
-        b = temp
-        i = i + 1u64
+// Arandu — scenarios/05_comptime_ctfe/arandu/src/main.aru
+func fibConst(n: u64): u64 {
+    if n == 0 {
+        return 0
     }
-    retorne a
+    let mut a: u64 = 0
+    let mut b: u64 = 1
+    let mut i: u64 = 1
+    while i < n {
+        let tmp = a + b
+        set a = b
+        set b = tmp
+        set i = i + 1
+    }
+    return b
 }
 
 // Evaluated 100% at compile time by Arandu's CTFE engine!
-imut tabela: [u64; 4] = comptime [
-    fibConst(90u64),
-    fibConst(91u64),
-    fibConst(92u64),
-    fibConst(93u64)
+let fib_table: [4]u64 = comptime [
+    fibConst(90),
+    fibConst(91),
+    fibConst(92),
+    fibConst(93)
 ]
 ```
 
@@ -292,7 +320,7 @@ imut tabela: [u64; 4] = comptime [
 
 ### Analysis: From 2,443 ms down to 6.27 ms!
 
-By combining algorithmic awareness with Arandu's `comptime` evaluation, executing **10,000,000 Fibonacci queries** drops to **6.27 milliseconds** on Arandu's C backend and **13.45 milliseconds** on Cranelift—literally just the time required to cycle a counter 10 million times and add an L1-cached array element (`tabela[(iter + seed) & 3]`) to an accumulator register.
+By combining algorithmic awareness with Arandu's `comptime` evaluation, executing **10,000,000 Fibonacci queries** drops to **6.27 milliseconds** on Arandu's C backend and **13.45 milliseconds** on Cranelift—literally just the time required to cycle a counter 10 million times and add an L1-cached array element (`fib_table[(iter + seed) & 3]`) to an accumulator register.
 
 ---
 
@@ -314,7 +342,7 @@ Currently, every function call (`fibIter`, `fibFast`, `fibBinet`) remains an exp
 - **What we are building**: A bottom-up call-graph inliner in AMIR (`inline_small_functions`) that inlines leaf and small functions before running constant propagation and CSE. In Round 4 and Round 5, inlining `fibFast` directly into `main` is the prerequisite that unlocks loop unrolling and constant bit-mask folding.
 
 ### 2. Loop Unrolling, LICM, and SIMD Auto-Vectorization
-In Round 3, LLVM beat both GCC and Cranelift by 2x–3.5x because it unrolled the `while i <= n` Fibonacci loop 8x and collapsed register moves. And in Round 4, `rustc` ran 3.6x faster than GCC because LLVM unrolled the 7-iteration Fast Doubling loop and packed two 64-bit Fibonacci lanes into AVX2 `vpmuldq`/`vpmuludq` instructions.
+In Round 3, LLVM beat both GCC and Cranelift by 2x–3.5x because it unrolled the `while i < n` Fibonacci loop 8x and collapsed register moves. And in Round 4, `rustc` ran 3.6x faster than GCC because LLVM unrolled the 7-iteration Fast Doubling loop and packed two 64-bit Fibonacci lanes into AVX2 `vpmuldq`/`vpmuludq` instructions.
 - **What we are building**: Adding natural-loop detection and **Loop-Invariant Code Motion (LICM)** + small-trip-count **Loop Unrolling** in AMIR, so both the Cranelift backend and C backend receive pre-hoisted, unrolled loops without relying on downstream C compiler heuristics.
 
 ### 3. Tail-Recursion Elimination (TRE) & Accumulator Transformation
@@ -322,7 +350,7 @@ In Round 1, GCC ran `fib(0..=40)` in `383 ms` (and `405 ms` via Arandu's C backe
 - **What we are building**: A dedicated **Tail-Recursion Elimination** pass in AMIR that transforms self-recursive tail calls (and associative `f(n-1) + f(n-2)` accumulator patterns) into loop headers (`Goto` with block parameters), eliminating millions of stack frame allocations on Cranelift.
 
 ### 4. If-Conversion (`Select` / `cmov` / Branchless Lowering)
-In Round 4 (Fast Doubling), the inner loop contains a data-dependent branch (`se (n & bit) != 0`). On modern out-of-order CPUs, unpredictable branches inside a 7-iteration loop cause pipeline flushes.
+In Round 4 (Fast Doubling), the inner loop contains a data-dependent branch (`if (n & bit) != 0`). On modern out-of-order CPUs, unpredictable branches inside a 7-iteration loop cause pipeline flushes.
 - **What we are building**: Lowering simple diamond CFG blocks (`Branch` -> two single-assignment blocks -> `Goto` merge) into branchless `Select` instructions in AMIR, allowing Cranelift and C compilers to emit x86_64 `cmov` or SIMD blend instructions (`vblendvpd`).
 
 ---
@@ -347,7 +375,7 @@ The next time someone posts a screenshot claiming Language X is 20x slower than 
 2. **Compile-Time Evaluation (`comptime` / `const fn`)**: Moving invariant work from runtime to compile time drops 10 million evaluations to **~5–6 milliseconds**, turning CPU-bound math into L1 cache lookups.
 3. **Low-Level Code Generation**: Once the algorithm and compile-time boundaries are fixed, the remaining 2x–4x gaps come down to concrete compiler engineering—interprocedural inlining, loop unrolling, branchless `cmov`/`vblendvpd` selection, and AVX2 SIMD vectorization.
 
-With Arandu, our goal is to give developers control over all three dimensions: expressive high-level syntax with Portuguese and universal keywords, memory safety via static `GenRef` escape analysis (`promotions=0 checks=0`), first-class `comptime` execution, and an optimizing compiler pipeline that stands shoulder-to-shoulder with C and Rust.
+With Arandu, our goal is to give developers control over all three dimensions: clean and expressive syntax with value semantics (`func`, `let`, `mut`, `set`), memory safety via static `GenRef` escape analysis (`promotions=0 checks=0`), first-class `comptime` execution, and an optimizing compiler pipeline that stands shoulder-to-shoulder with C and Rust.
 
 ---
 

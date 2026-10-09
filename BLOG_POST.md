@@ -130,9 +130,7 @@ funcao fib(n: u64) -> u64 {
 
 Now let's test the algorithm that the C code in the meme actually used: **Binet's Formula**, which approximates Fₙ using IEEE-754 64-bit floating-point arithmetic (`f64` / `double`):
 
-$$F_n \approx \text{round}\left(\frac{\varphi^n}{\sqrt{5}}\right), \quad \text{where } \varphi = \frac{1 + \sqrt{5}}{2}$$
-
-> **Medium-friendly notation**: `Fₙ ≈ round(φⁿ / √5), where φ = (1 + √5) / 2`
+> **Fₙ ≈ round(φⁿ / √5)**, where **φ = (1 + √5) / 2**
 
 > [!WARNING]
 > **Mathematical Caveat**: While Binet's formula runs in O(1) time, IEEE-754 `f64` only has 53 bits of significand precision. For `n > 70`, Binet's formula **cannot represent exact Fibonacci integers**! Still, running it **10,000,000 times** in a loop is a great test of floating-point instruction scheduling and `libm` (`pow` / `round`) integration.

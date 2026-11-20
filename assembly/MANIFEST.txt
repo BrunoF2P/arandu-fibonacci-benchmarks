@@ -1,0 +1,35 @@
+Disassembly dos executáveis dos benchmarks
+Plataforma: Linux-6.8.0-1064-azure-x86_64-with-glibc2.39 (x86_64)
+Ferramentas disponíveis: /usr/bin/objdump
+Os arquivos foram gerados depois das medições de tempo.
+
+01_naive_recursive__Rust_-O3_lto_fat.asm	/workspaces/arandu-fibonacci-benchmarks/build/01_naive_recursive/rust_opt
+01_naive_recursive__C_GCC_-O3_-march_native_-flto.asm	/workspaces/arandu-fibonacci-benchmarks/build/01_naive_recursive/c_gcc
+01_naive_recursive__C_Clang_-O3_-march_native_-flto.asm	/workspaces/arandu-fibonacci-benchmarks/build/01_naive_recursive/c_clang
+01_naive_recursive__Arandu_Cranelift_--release.asm	/workspaces/arandu-fibonacci-benchmarks/scenarios/01_naive_recursive/arandu/target/release/x86_64-unknown-linux-gnu/bin/s1_arandu-2d1f8d77d4fa0772
+01_naive_recursive__Arandu_emit-c_--opt_GCC_-O3.asm	/workspaces/arandu-fibonacci-benchmarks/build/01_naive_recursive/arandu_c_gcc
+01_naive_recursive__Arandu_emit-c_--opt_Clang_-O3.asm	/workspaces/arandu-fibonacci-benchmarks/build/01_naive_recursive/arandu_c_clang
+02_binet_formula__Rust_-O3_lto_fat.asm	/workspaces/arandu-fibonacci-benchmarks/build/02_binet_formula/rust_opt
+02_binet_formula__C_GCC_-O3_-march_native_-flto.asm	/workspaces/arandu-fibonacci-benchmarks/build/02_binet_formula/c_gcc
+02_binet_formula__C_Clang_-O3_-march_native_-flto.asm	/workspaces/arandu-fibonacci-benchmarks/build/02_binet_formula/c_clang
+02_binet_formula__Arandu_Cranelift_--release.asm	/workspaces/arandu-fibonacci-benchmarks/scenarios/02_binet_formula/arandu/target/release/x86_64-unknown-linux-gnu/bin/s2_arandu-92192d67d8060807
+02_binet_formula__Arandu_emit-c_--opt_GCC_-O3.asm	/workspaces/arandu-fibonacci-benchmarks/build/02_binet_formula/arandu_c_gcc
+02_binet_formula__Arandu_emit-c_--opt_Clang_-O3.asm	/workspaces/arandu-fibonacci-benchmarks/build/02_binet_formula/arandu_c_clang
+03_iterative_dp__Rust_-O3_lto_fat.asm	/workspaces/arandu-fibonacci-benchmarks/build/03_iterative_dp/rust_opt
+03_iterative_dp__C_GCC_-O3_-march_native_-flto.asm	/workspaces/arandu-fibonacci-benchmarks/build/03_iterative_dp/c_gcc
+03_iterative_dp__C_Clang_-O3_-march_native_-flto.asm	/workspaces/arandu-fibonacci-benchmarks/build/03_iterative_dp/c_clang
+03_iterative_dp__Arandu_Cranelift_--release.asm	/workspaces/arandu-fibonacci-benchmarks/scenarios/03_iterative_dp/arandu/target/release/x86_64-unknown-linux-gnu/bin/s3a_arandu-7e6ca67b82dcb6a6
+03_iterative_dp__Arandu_emit-c_--opt_GCC_-O3.asm	/workspaces/arandu-fibonacci-benchmarks/build/03_iterative_dp/arandu_c_gcc
+03_iterative_dp__Arandu_emit-c_--opt_Clang_-O3.asm	/workspaces/arandu-fibonacci-benchmarks/build/03_iterative_dp/arandu_c_clang
+04_fast_doubling__Rust_-O3_lto_fat.asm	/workspaces/arandu-fibonacci-benchmarks/build/04_fast_doubling/rust_opt
+04_fast_doubling__C_GCC_-O3_-march_native_-flto.asm	/workspaces/arandu-fibonacci-benchmarks/build/04_fast_doubling/c_gcc
+04_fast_doubling__C_Clang_-O3_-march_native_-flto.asm	/workspaces/arandu-fibonacci-benchmarks/build/04_fast_doubling/c_clang
+04_fast_doubling__Arandu_Cranelift_--release.asm	/workspaces/arandu-fibonacci-benchmarks/scenarios/04_fast_doubling/arandu/target/release/x86_64-unknown-linux-gnu/bin/s4_arandu-08f2645b06a97446
+04_fast_doubling__Arandu_emit-c_--opt_GCC_-O3.asm	/workspaces/arandu-fibonacci-benchmarks/build/04_fast_doubling/arandu_c_gcc
+04_fast_doubling__Arandu_emit-c_--opt_Clang_-O3.asm	/workspaces/arandu-fibonacci-benchmarks/build/04_fast_doubling/arandu_c_clang
+05_comptime_ctfe__Rust_-O3_lto_fat.asm	/workspaces/arandu-fibonacci-benchmarks/build/05_comptime_ctfe/rust_opt
+05_comptime_ctfe__C_GCC_-O3_-march_native_-flto.asm	/workspaces/arandu-fibonacci-benchmarks/build/05_comptime_ctfe/c_gcc
+05_comptime_ctfe__C_Clang_-O3_-march_native_-flto.asm	/workspaces/arandu-fibonacci-benchmarks/build/05_comptime_ctfe/c_clang
+05_comptime_ctfe__Arandu_Cranelift_--release.asm	/workspaces/arandu-fibonacci-benchmarks/scenarios/05_comptime_ctfe/arandu/target/release/x86_64-unknown-linux-gnu/bin/s5_arandu-7e93e64055ac83eb
+05_comptime_ctfe__Arandu_emit-c_--opt_GCC_-O3.asm	/workspaces/arandu-fibonacci-benchmarks/build/05_comptime_ctfe/arandu_c_gcc
+05_comptime_ctfe__Arandu_emit-c_--opt_Clang_-O3.asm	/workspaces/arandu-fibonacci-benchmarks/build/05_comptime_ctfe/arandu_c_clang
